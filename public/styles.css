@@ -232,7 +232,7 @@ input[type="color"] {
   cursor: pointer;
 }
 
-/* ---------------------------------------------------------------- grid ---- */
+/* ---------------------------------------------------- master race grid ---- */
 
 .grid-wrap {
   overflow-x: auto;
@@ -240,35 +240,43 @@ input[type="color"] {
   border-radius: var(--radius);
   background: var(--bg-raised);
 }
-
-table.entry-grid {
-  border-collapse: collapse;
-  width: 100%;
-  min-width: 640px;
+.master-grid-wrap {
+  /* Cap height so the sticky header + horizontal scroll stay usable on a
+     long season. */
+  max-height: calc(100vh - 230px);
+  overflow: auto;
 }
 
-.entry-grid th,
-.entry-grid td {
+table.master-grid {
+  border-collapse: separate; /* required for sticky cells to paint borders */
+  border-spacing: 0;
+  width: 100%;
+}
+
+.master-grid th,
+.master-grid td {
   border-bottom: 1px solid var(--border);
   border-right: 1px solid var(--border);
   text-align: left;
   vertical-align: middle;
+  white-space: nowrap;
+  background: var(--bg-raised); /* opaque so sticky cells don't show-through */
 }
 
-.entry-grid thead th {
+/* sticky header row (top) */
+.master-grid thead th {
   position: sticky;
   top: 0;
+  z-index: 6;
   background: #0e1014;
-  z-index: 5;
   font-family: var(--mono);
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-dim);
-  padding: 10px 12px;
-  white-space: nowrap;
+  padding: 9px 12px;
 }
-.entry-grid thead th .kind {
+.master-grid thead th .kind {
   display: inline-block;
   font-size: 9px;
   margin-left: 6px;
@@ -277,99 +285,149 @@ table.entry-grid {
   color: var(--text-faint);
   border: 1px solid var(--border-strong);
 }
-.entry-grid thead th .kind.sprint {
+.master-grid thead th .kind.sprint {
   color: var(--warn);
   border-color: #5a4400;
 }
 
-/* team group header row */
-tr.team-row td {
-  background: #0d0f13;
-  padding: 8px 12px;
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  border-bottom: 1px solid var(--border-strong);
+/* --- sticky columns ---
+   Left: LOCKED (0) · Team (44) · Driver (104) · No. (244)
+   Right: TOTAL. Offsets must match the column widths below. */
+.master-grid .sticky-l {
+  position: sticky;
+  z-index: 4;
 }
-tr.team-row .team-name {
-  color: var(--text);
-  font-weight: 600;
+.master-grid thead .sticky-l {
+  z-index: 7; /* header corners sit above body sticky cells */
 }
-tr.team-row .team-pts {
-  color: var(--text-dim);
-  margin-left: 8px;
+.master-grid .sticky-r {
+  position: sticky;
+  right: 0;
+  z-index: 4;
+  border-left: 1px solid var(--border-strong);
+}
+.master-grid thead .sticky-r {
+  z-index: 7;
 }
 
-/* driver name cell */
-td.driver-cell {
-  padding: 8px 12px;
-  white-space: nowrap;
-  border-left: 4px solid transparent; /* team color accent */
-  min-width: 190px;
+.master-grid .mg-lock {
+  left: 0;
+  width: 44px;
+  min-width: 44px;
+  text-align: center;
+  padding: 6px 4px;
 }
-td.driver-cell .num {
-  display: inline-block;
-  min-width: 26px;
+.master-grid .mg-team {
+  left: 44px;
+  width: 60px;
+  min-width: 60px;
+  border-right: 1px solid var(--border-strong);
+}
+.master-grid .mg-driver {
+  left: 104px;
+  width: 140px;
+  min-width: 140px;
+}
+.master-grid .mg-num {
+  left: 244px;
+  width: 52px;
+  min-width: 52px;
   text-align: right;
   color: var(--text-faint);
-  margin-right: 8px;
-}
-td.driver-cell .dname {
-  font-weight: 600;
-}
-td.driver-cell .lock-icon {
-  color: var(--warn);
-  margin-left: 6px;
-}
-td.driver-cell .locked-label {
-  font-family: var(--mono);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--warn);
-  border: 1px solid #5a4400;
-  border-radius: 3px;
-  padding: 1px 4px;
-  margin-left: 6px;
-}
-td.driver-cell .row-tools {
-  margin-top: 5px;
-  display: none;
-}
-body.edit-mode td.driver-cell .row-tools {
-  display: flex;
-  gap: 6px;
-}
-tr.locked td.driver-cell .dname {
-  color: var(--text-dim);
+  border-right: 1px solid var(--border-strong);
 }
 
-/* result cells */
-td.result-cell {
-  padding: 6px 10px;
-  min-width: 96px;
-  cursor: default;
-  position: relative;
+/* team cell: vertical name, tinted (inline bg/box-shadow set per team) */
+.master-grid .mg-team .mg-team-name {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  white-space: normal;
+  line-height: 1.2;
 }
-body.edit-mode td.result-cell:not(.readonly) {
+
+/* alternating team blocks: a subtle background shift on the body cells so
+   it's easy to see where one team ends and the next begins. The team-tinted
+   sticky Team cell and team-scored race cells set their own bg inline and
+   win over these. */
+.master-grid tbody tr.block-odd td {
+  background: #0e1014;
+}
+.master-grid tbody tr.block-even td {
+  background: var(--bg-raised);
+}
+.master-grid tbody tr.block-orphan td {
+  background: #140e0e;
+}
+
+/* driver cell */
+.master-grid .mg-driver .dname {
+  font-weight: 600;
+}
+.master-grid tr.locked .mg-driver .dname {
+  color: var(--text-dim);
+}
+.master-grid .lock-icon {
+  color: var(--warn);
+}
+.master-grid .lock-toggle,
+.master-grid .driver-remove {
+  display: none;
+}
+body.edit-mode .master-grid .lock-toggle {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 9px;
+  padding: 1px 5px;
+}
+body.edit-mode .master-grid .driver-remove {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 5px;
+}
+
+/* TOTAL column */
+.master-grid .mg-total {
+  text-align: right;
+  font-size: 15px;
+  font-weight: 700;
+  min-width: 64px;
+  padding: 6px 12px;
+}
+.master-grid thead .mg-total {
+  font-size: 11px;
+}
+
+/* race result cells */
+.master-grid td.result-cell {
+  padding: 6px 10px;
+  min-width: 78px;
+  text-align: center;
+  position: relative;
+  cursor: default;
+}
+.master-grid td.result-cell.editable {
   cursor: pointer;
 }
-body.edit-mode td.result-cell:not(.readonly):hover {
-  background: var(--bg-cell-hover);
+.master-grid td.result-cell.editable:hover {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
-td.result-cell.readonly {
-  background: repeating-linear-gradient(
+/* locked rows in edit mode: hatched to read as frozen */
+.master-grid td.result-cell.readonly {
+  background-image: repeating-linear-gradient(
     -45deg,
     transparent,
     transparent 6px,
-    rgba(255, 176, 0, 0.04) 6px,
-    rgba(255, 176, 0, 0.04) 12px
+    rgba(255, 176, 0, 0.05) 6px,
+    rgba(255, 176, 0, 0.05) 12px
   );
 }
 
 .pos-tag {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
 }
 .pos-tag.dnf,
@@ -380,35 +438,18 @@ td.result-cell.readonly {
   color: var(--text-faint);
 }
 .cell-pts {
-  display: block;
+  font-family: var(--mono);
   font-size: 10px;
   color: var(--text-faint);
-  margin-top: 2px;
-}
-.cell-flag {
-  display: inline-block;
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-top: 3px;
-  padding: 0 4px;
-  border-radius: 3px;
-}
-.cell-flag.indep {
-  color: var(--text-dim);
-  border: 1px solid var(--border-strong);
-}
-.cell-flag.team {
-  color: #bfe9ce;
-  border: 1px solid #1d5e38;
+  margin-left: 4px;
 }
 
 /* over-limit warning marker on a cell */
-td.result-cell.over-limit::after {
+.master-grid td.result-cell.over-limit::after {
   content: "⚑";
   position: absolute;
-  top: 3px;
-  right: 5px;
+  top: 2px;
+  right: 4px;
   color: var(--accent);
   font-size: 11px;
   text-shadow: 0 0 6px var(--accent-dim);

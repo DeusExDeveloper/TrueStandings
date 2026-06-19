@@ -27,10 +27,10 @@
       <div id="offline-banner" class="warn-banner offline-banner"></div>
 
       <nav class="tabs">
+        <button class="tab" data-view="grid">Race Grid</button>
         <button class="tab" data-view="drivers">Drivers</button>
         <button class="tab" data-view="teams">Teams</button>
         <button class="tab" data-view="penalties">Penalties</button>
-        <button class="tab edit-only" data-view="grid">Race Entry</button>
       </nav>
 
       <!-- 1. Driver Standings board (public read-only) -->
@@ -119,7 +119,8 @@
         </p>
       </section>
 
-      <!-- Race entry grid (edit mode only) -->
+      <!-- Master race grid — the primary full-detail / entry view.
+           Read-only when locked, click-to-edit cells when unlocked. -->
       <section id="grid-view" class="view">
         <div class="editor-toolbar">
           <button id="btn-add-team" class="btn">+ Team</button>
@@ -127,10 +128,11 @@
           <button id="btn-add-race" class="btn">+ Race / Sprint</button>
         </div>
         <div id="warn-banner" class="warn-banner"></div>
-        <div class="grid-wrap"></div>
+        <div class="grid-wrap master-grid-wrap"></div>
         <p class="hint">
-          Click a cell to enter a result. Each cell shows position · points and a
-          Team / Independent tag. Locked rows are read-only until unlocked.
+          Every driver's full season, race by race. Cells tinted with the team
+          colour scored for the team that round; untinted cells were independent.
+          Unlock editing to click any cell and enter a result.
         </p>
       </section>
     </main>

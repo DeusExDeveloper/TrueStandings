@@ -89,6 +89,18 @@
     return league.teams.find((t) => t.id === id);
   }
 
+  // Convert a #rrggbb (or #rgb) hex color to an rgba() string at the given
+  // alpha. Used for the subtle team-tinted cell highlights / row blocks.
+  function hexToRgba(hex, alpha) {
+    let h = (hex || "").replace("#", "");
+    if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+    if (h.length !== 6) return `rgba(128,128,128,${alpha})`;
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
   function posTagText(result) {
     if (!result) return "—";
     if (result.status === "dnf") return "DNF";
@@ -97,7 +109,12 @@
     return `P${result.position}`;
   }
 
-  // --- rendering: entry grid -------------------------------------------------
+  // --- rendering: master race grid -------------------------------------------
+  // The single source-of-truth table the whole app reads from. Every driver's
+  // full season, race by race, grouped by team. It IS the race-entry screen:
+  // in edit mode each race cell is click-to-edit (same inline editor); when
+  // locked it's static. Totals reuse driverPoints() / teamPoints() — no
+  // recomputation, no duplicate state.
 
   function renderGrid() {
     const wrap = $("#grid-view .grid-wrap");
@@ -107,25 +124,34 @@
       wrap.appendChild(
         el("div", {
           class: "empty-state",
-          text: "Add at least one team, driver, and race to start entering results.",
+          text: editMode
+            ? "Add at least one team, driver, and race to start entering results."
+            : "No race data yet.",
         })
       );
       renderWarnings();
       return;
     }
 
-    const table = el("table", { class: "entry-grid" });
+    const table = el("table", { class: "master-grid" });
 
-    // header
+    // ---- header: LOCKED · Team · Driver · # · races… · TOTAL ----
     const thead = el("thead");
     const headRow = el("tr");
-    headRow.appendChild(el("th", { text: "Driver" }));
+    headRow.appendChild(el("th", { class: "mg-lock sticky-l", text: "" }));
+    headRow.appendChild(el("th", { class: "mg-team sticky-l", text: "Team" }));
+    headRow.appendChild(el("th", { class: "mg-driver sticky-l", text: "Driver" }));
+    headRow.appendChild(el("th", { class: "mg-num sticky-l", text: "No." }));
+
     for (const race of league.races) {
       const kindBadge = el("span", {
         class: `kind ${race.kind === "sprint" ? "sprint" : "race"}`,
         text: race.kind === "sprint" ? "SPR" : "RACE",
       });
-      const th = el("th", {}, [document.createTextNode(race.label + " "), kindBadge]);
+      const th = el("th", { class: "mg-race" }, [
+        document.createTextNode(race.label + " "),
+        kindBadge,
+      ]);
       if (editMode) {
         th.appendChild(document.createElement("br"));
         th.appendChild(
@@ -133,43 +159,64 @@
             class: "btn small danger",
             text: "remove",
             title: `Remove ${race.label}`,
-            onclick: () => removeRace(race.id),
+            onclick: (e) => {
+              e.stopPropagation();
+              removeRace(race.id);
+            },
           })
         );
       }
       headRow.appendChild(th);
     }
+    headRow.appendChild(el("th", { class: "mg-total sticky-r", text: "TOTAL" }));
     thead.appendChild(headRow);
     table.appendChild(thead);
 
-    // body — drivers grouped by team
+    // ---- body: team blocks sorted by team points desc ----
     const tbody = el("tbody");
-    for (const team of league.teams) {
-      const teamDrivers = league.drivers.filter((d) => d.teamId === team.id);
-      if (teamDrivers.length === 0 && !editMode) continue;
 
-      // team group header
-      const teamRow = el("tr", { class: "team-row" });
-      const teamPts = WSS.teamPoints(team.id, league.results, league.drivers, league.races);
-      teamRow.appendChild(
-        el("td", { colspan: league.races.length + 1 }, [
-          el("span", { class: "team-dot", style: `background:${team.color}` }),
-          el("span", { class: "team-name", text: team.name }),
-          el("span", { class: "team-pts num", text: `${teamPts} pts` }),
-        ])
-      );
-      tbody.appendChild(teamRow);
+    // Use teamStandings to order team blocks by points (most competitive first).
+    const orderedTeams = WSS.teamStandings(
+      league.teams,
+      league.results,
+      league.drivers,
+      league.races
+    ).map((s) => s.team);
 
-      for (const driver of teamDrivers) {
-        tbody.appendChild(renderDriverRow(driver, team));
-      }
+    let blockIndex = 0;
+    for (const team of orderedTeams) {
+      const teamDrivers = league.drivers
+        .filter((d) => d.teamId === team.id)
+        .sort(
+          (a, b) =>
+            WSS.driverPoints(b.id, league.results) -
+            WSS.driverPoints(a.id, league.results)
+        );
+      if (teamDrivers.length === 0) continue;
+
+      const blockClass = blockIndex % 2 === 0 ? "block-even" : "block-odd";
+      blockIndex += 1;
+
+      teamDrivers.forEach((driver, i) => {
+        tbody.appendChild(
+          renderMasterRow(driver, team, blockClass, i === 0, teamDrivers.length)
+        );
+      });
     }
 
-    // drivers with no/unknown team (defensive)
+    // Orphaned drivers (no/unknown team) — keep them visible rather than lost.
     const orphaned = league.drivers.filter((d) => !teamById(d.teamId));
-    for (const driver of orphaned) {
-      tbody.appendChild(renderDriverRow(driver, { color: "#666", name: "—" }));
-    }
+    orphaned.forEach((driver, i) => {
+      tbody.appendChild(
+        renderMasterRow(
+          driver,
+          { id: null, color: "#666", name: "—" },
+          "block-orphan",
+          i === 0,
+          orphaned.length
+        )
+      );
+    });
 
     table.appendChild(tbody);
     wrap.appendChild(table);
@@ -177,78 +224,119 @@
     renderWarnings();
   }
 
-  function renderDriverRow(driver, team) {
-    const tr = el("tr", { class: driver.locked ? "locked" : "" });
-
-    // driver name cell
-    const nameCell = el("td", {
-      class: "driver-cell",
-      style: `border-left-color:${team.color}`,
+  // One driver row across the whole season.
+  // `firstInBlock` + `blockSize` let us render the team name once, spanning the
+  // block (like the reference sheet's merged team cell).
+  function renderMasterRow(driver, team, blockClass, firstInBlock, blockSize) {
+    const tr = el("tr", {
+      class: `mg-row ${blockClass} ${driver.locked ? "locked" : ""}`,
     });
-    nameCell.appendChild(el("span", { class: "num", text: `#${driver.number}` }));
-    nameCell.appendChild(el("span", { class: "dname", text: driver.name }));
-    if (driver.locked) {
-      nameCell.appendChild(el("span", { class: "lock-icon", text: "🔒" }));
-      nameCell.appendChild(el("span", { class: "locked-label", text: "locked" }));
-    }
-    // row tools (edit mode)
-    const tools = el("div", { class: "row-tools" });
-    tools.appendChild(
-      el("button", {
-        class: "btn small",
-        text: driver.locked ? "Unlock row" : "Lock row",
-        onclick: () => toggleLock(driver.id),
-      })
-    );
-    tools.appendChild(
-      el("button", {
-        class: "btn small danger",
-        text: "Remove",
-        onclick: () => removeDriver(driver.id),
-      })
-    );
-    nameCell.appendChild(tools);
-    tr.appendChild(nameCell);
 
-    // result cells
+    // LOCKED cell (sticky)
+    const lockCell = el("td", { class: "mg-lock sticky-l" });
+    if (driver.locked) {
+      lockCell.appendChild(el("span", { class: "lock-icon", text: "🔒" }));
+    }
+    if (editMode) {
+      lockCell.appendChild(
+        el("button", {
+          class: "btn small lock-toggle",
+          text: driver.locked ? "unlock" : "lock",
+          title: driver.locked ? "Unlock this row" : "Lock this row",
+          onclick: (e) => {
+            e.stopPropagation();
+            toggleLock(driver.id);
+          },
+        })
+      );
+    }
+    tr.appendChild(lockCell);
+
+    // TEAM cell (sticky), tinted with the team color, rendered once per block.
+    if (firstInBlock) {
+      const teamCell = el("td", {
+        class: "mg-team sticky-l",
+        rowspan: blockSize > 1 ? String(blockSize) : null,
+        style: `background:${hexToRgba(team.color, 0.22)};box-shadow:inset 4px 0 0 ${team.color}`,
+      });
+      teamCell.appendChild(el("span", { class: "mg-team-name", text: team.name }));
+      tr.appendChild(teamCell);
+    }
+
+    // DRIVER cell (sticky)
+    const driverCell = el("td", { class: "mg-driver sticky-l" });
+    driverCell.appendChild(el("span", { class: "dname", text: driver.name }));
+    if (editMode && team.id) {
+      driverCell.appendChild(
+        el("button", {
+          class: "btn small danger driver-remove",
+          text: "✕",
+          title: `Remove ${driver.name}`,
+          onclick: (e) => {
+            e.stopPropagation();
+            removeDriver(driver.id);
+          },
+        })
+      );
+    }
+    tr.appendChild(driverCell);
+
+    // NUMBER cell (sticky)
+    tr.appendChild(el("td", { class: "mg-num sticky-l num", text: `#${driver.number}` }));
+
+    // RACE cells
     for (const race of league.races) {
       tr.appendChild(renderResultCell(driver, race, team));
     }
+
+    // TOTAL cell (sticky right) — reuses driverPoints(), the same function the
+    // Driver Standings board uses.
+    const total = WSS.driverPoints(driver.id, league.results);
+    tr.appendChild(el("td", { class: "mg-total sticky-r num", text: String(total) }));
+
     return tr;
   }
 
   function renderResultCell(driver, race, team) {
     const result = WSS.getResult(league.results, driver.id, race.id);
-    const readonly = driver.locked;
+    const readonly = driver.locked || !editMode;
+    const isTeamScored = !!(result && result.teamRace === true && result.position != null);
     const overLimit =
-      result &&
-      result.teamRace === true &&
+      isTeamScored &&
+      team.id &&
       WSS.isTeamRaceOverLimit(driver.teamId, race.id, league.results, league.drivers);
 
     const td = el("td", {
-      class: `result-cell ${readonly ? "readonly" : ""} ${overLimit ? "over-limit" : ""}`,
+      class:
+        "mg-cell result-cell" +
+        (driver.locked ? " readonly" : "") +
+        (isTeamScored ? " team-scored" : "") +
+        (overLimit ? " over-limit" : ""),
+      // Subtle team-color tint when this result scored for the team.
+      style: isTeamScored ? `background:${hexToRgba(team.color, 0.18)}` : null,
       title: overLimit
         ? `Warning: ${team.name} has 3+ team-scoring drivers in ${race.label}`
         : "",
     });
 
-    const pts = WSS.pointsForResult(result);
-    const tagClass = result && (result.status === "dnf" || result.status === "dsq")
-      ? result.status
-      : (!result || result.position == null ? "empty" : "");
-    td.appendChild(el("span", { class: `pos-tag ${tagClass}`, text: posTagText(result) }));
-    td.appendChild(el("span", { class: "cell-pts", text: `${pts} pts` }));
-
-    if (result && result.position != null) {
+    if (!result || result.position == null) {
+      // No entry yet — plain dash.
+      td.appendChild(el("span", { class: "pos-tag empty", text: "-" }));
+    } else if (result.status === "dnf" || result.status === "dsq") {
       td.appendChild(
-        el("span", {
-          class: `cell-flag ${result.teamRace ? "team" : "indep"}`,
-          text: result.teamRace ? "Team" : "Indep",
-        })
+        el("span", { class: `pos-tag ${result.status}`, text: result.status.toUpperCase() })
       );
+    } else {
+      const pts = WSS.pointsForResult(result);
+      td.appendChild(
+        el("span", { class: "pos-tag", text: `P${result.position}` })
+      );
+      td.appendChild(el("span", { class: "cell-pts", text: `(${pts}pts)` }));
     }
 
-    if (editMode && !readonly) {
+    // Clickable only when editable (unlocked app + unlocked row).
+    if (!readonly) {
+      td.classList.add("editable");
       td.addEventListener("click", () => openCellEditor(driver, race));
     }
     return td;
@@ -1137,7 +1225,7 @@
     });
 
     updateModeUI();
-    switchTab("drivers");
+    switchTab("grid"); // master grid is the primary view
     // Fetch from the backend; renders happen inside loadLeague.
     loadLeague();
   }
