@@ -19,6 +19,7 @@
   --accent-dim: #7a0f0c;
   --ok: #29c46a;
   --warn: #ffb000;
+  --fastlap: #c026f3; /* neon violet — fastest lap marker (not a team color) */
 
   --gold: #ffd54a;
   --silver: #c9d1da;
@@ -284,9 +285,9 @@ table.master-grid {
   vertical-align: middle; /* center all cell content vertically */
   white-space: nowrap;
   background: var(--bg-raised); /* opaque so sticky cells don't show-through */
-  /* Comfortable, uniform row height + horizontal breathing room. Per-column
-     left padding (Team/Driver/No.) is tuned below; this is the baseline. */
-  padding: 11px 12px;
+  /* Compact, spreadsheet-tight rows: low vertical padding, horizontal padding
+     kept for breathing room. Per-column left padding tuned below. */
+  padding: 5px 12px;
 }
 
 /* sticky header row (top) */
@@ -300,7 +301,7 @@ table.master-grid {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-dim);
-  padding: 11px 12px;
+  padding: 6px 12px;
 }
 .master-grid thead th .kind {
   display: inline-block;
@@ -481,6 +482,22 @@ table.master-grid {
   color: var(--accent);
   font-size: 11px;
   text-shadow: 0 0 6px var(--accent-dim);
+}
+
+/* Fastest lap marker — vivid neon purple ring, distinct from team tints.
+   Uses inset box-shadow so it works on positioned cells without shifting
+   layout, and layers over any team-color tint. */
+.master-grid td.result-cell.fastest-lap {
+  box-shadow: inset 0 0 0 2px var(--fastlap);
+}
+.master-grid td.result-cell.fastest-lap::before {
+  content: "⏱";
+  position: absolute;
+  top: 1px;
+  left: 4px;
+  color: var(--fastlap);
+  font-size: 9px;
+  opacity: 0.95;
 }
 .warn-banner {
   display: none;
@@ -694,6 +711,16 @@ table.master-grid {
   color: #fff;
 }
 
+/* fastest-lap on/off switch */
+.seg.fastlap button.active[data-val="on"] {
+  background: var(--fastlap);
+  color: #fff;
+}
+.seg.fastlap button.active[data-val="off"] {
+  background: var(--border-strong);
+  color: var(--text);
+}
+
 /* editor toolbar (add team/driver/race) */
 .editor-toolbar {
   display: none;
@@ -713,48 +740,47 @@ body.edit-mode .editor-toolbar {
   font-size: 12px;
 }
 
-/* Roster editor panels (Drivers/Teams tabs) — only visible in edit mode. */
-.edit-only-panel {
-  display: none;
-  margin-bottom: 22px;
-}
-body.edit-mode .edit-only-panel {
-  display: block;
-}
-
-/* compact roster tables */
-.roster-board {
-  width: auto;
-  min-width: 0;
-}
-.roster-board thead th,
-.roster-board tbody td {
-  padding: 8px 12px;
-}
-.roster-board .col-num {
-  width: 64px;
+/* Inline edit controls embedded directly in the standings tables (edit mode).
+   One table per tab — it just gains these controls in its cells. */
+.col-num {
+  width: 70px;
   text-align: center;
 }
-.roster-board td.col-num {
+td.col-num {
   text-align: center;
-  color: var(--text-dim);
 }
-.roster-board .col-lock {
-  width: 110px;
+.col-lock {
+  width: 116px;
+  text-align: center;
 }
-.roster-board .col-color {
+.col-color {
   width: 60px;
   text-align: center;
 }
-.roster-board .col-act {
+.col-act {
   white-space: nowrap;
   text-align: right;
 }
-.roster-board .col-act .btn {
+.col-act .btn {
   margin-left: 6px;
 }
-.roster-board tr.roster-locked .name-cell {
-  color: var(--text-dim);
+
+.inline-text,
+.inline-select {
+  width: 100%;
+  max-width: 200px;
+  padding: 3px 6px;
+  font-size: 13px;
+}
+.inline-num {
+  width: 56px;
+  padding: 3px 6px;
+  text-align: center;
+}
+.inline-color {
+  width: 36px;
+  height: 26px;
+  padding: 2px;
 }
 
 .hint {
@@ -787,13 +813,13 @@ table.board thead th {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-dim);
-  padding: 10px 14px;
+  padding: 5px 14px; /* compact rows */
   border-bottom: 1px solid var(--border-strong);
   background: #0e1014;
   white-space: nowrap;
 }
 table.board tbody td {
-  padding: 10px 14px;
+  padding: 5px 14px; /* compact rows */
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
 }
@@ -801,16 +827,17 @@ table.board tbody tr:last-child td {
   border-bottom: none;
 }
 
+/* Numeric / short-value columns are centered; name columns stay left. */
 .col-pos {
   width: 48px;
-  text-align: right;
+  text-align: center;
   color: var(--text-dim);
 }
 td.col-pos {
   font-size: 14px;
 }
 .col-pts {
-  text-align: right;
+  text-align: center;
   white-space: nowrap;
 }
 td.col-pts {
@@ -917,15 +944,15 @@ tr.breakdown-row td.breakdown {
   white-space: nowrap;
 }
 
-/* --- teams layout: board + stage cards --- */
-.teams-layout {
+/* --- drivers layout: standings board + stage cards alongside --- */
+.drivers-layout {
   display: grid;
   grid-template-columns: 1fr 280px;
   gap: 22px;
   align-items: start;
 }
 @media (max-width: 880px) {
-  .teams-layout {
+  .drivers-layout {
     grid-template-columns: 1fr;
   }
 }
@@ -1001,7 +1028,7 @@ input.stage-pts {
 }
 .penalties-board thead th,
 .penalties-board tbody td {
-  padding: 9px 12px;
+  padding: 5px 12px; /* compact rows */
 }
 .penalties-board .col-pts {
   width: 72px;

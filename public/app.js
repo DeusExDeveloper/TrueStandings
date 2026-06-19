@@ -323,16 +323,21 @@
       team.id &&
       WSS.isTeamRaceOverLimit(driver.teamId, race.id, league.results, league.drivers);
 
+    const hasFastestLap = !!(result && result.fastestLap && result.position != null);
+
     const td = el("td", {
       class:
         "mg-cell result-cell" +
         (driver.locked ? " readonly" : "") +
         (isTeamScored ? " team-scored" : "") +
-        (overLimit ? " over-limit" : ""),
+        (overLimit ? " over-limit" : "") +
+        (hasFastestLap ? " fastest-lap" : ""),
       // Subtle team-color tint when this result scored for the team.
       style: isTeamScored ? `background:${hexToRgba(team.color, 0.18)}` : null,
       title: overLimit
         ? `Warning: ${team.name} has 3+ team-scoring drivers in ${race.label}`
+        : hasFastestLap
+        ? "Fastest lap"
         : "",
     });
 
@@ -399,6 +404,7 @@
       position: existing && existing.position != null ? existing.position : "",
       status: existing ? existing.status : "finished",
       teamRace: existing ? existing.teamRace : defaultTeamFlagFor(driver, race),
+      fastestLap: existing ? !!existing.fastestLap : false,
     };
 
     const posInput = el("input", {
@@ -461,6 +467,32 @@
     posInput.addEventListener("input", updatePreview);
     updatePreview();
 
+    // Fastest Lap — simple on/off switch, off by default. Visual marker only;
+    // it does not change points.
+    const flSeg = el("div", { class: "seg fastlap" });
+    function setFastestLap(val) {
+      state.fastestLap = val;
+      $$("button", flSeg).forEach((b) =>
+        b.classList.toggle("active", b.getAttribute("data-val") === (val ? "on" : "off"))
+      );
+    }
+    flSeg.appendChild(
+      el("button", {
+        "data-val": "off",
+        class: !state.fastestLap ? "active" : "",
+        text: "Off",
+        onclick: () => setFastestLap(false),
+      })
+    );
+    flSeg.appendChild(
+      el("button", {
+        "data-val": "on",
+        class: state.fastestLap ? "active" : "",
+        text: "⏱ Fastest Lap",
+        onclick: () => setFastestLap(true),
+      })
+    );
+
     const body = el("div", {}, [
       el("div", { class: "field" }, [
         el("label", { text: `${driver.name} — ${race.label}` }),
@@ -479,6 +511,11 @@
         }),
         preview,
       ]),
+      el("div", { class: "field" }, [
+        el("label", { text: "Fastest lap" }),
+        flSeg,
+        el("div", { class: "seg-caption", text: "Marker only — does not change points." }),
+      ]),
     ]);
 
     openModal(`Result · ${posTagText(existing)}`, body, () => {
@@ -492,6 +529,7 @@
           position: posVal,
           status: state.status,
           teamRace: !!state.teamRace,
+          fastestLap: !!state.fastestLap,
         };
       }
       markDirty();
@@ -626,58 +664,6 @@
     renderAll();
   }
 
-  // Edit an existing driver: name, team, car number (Drivers tab only).
-  function openEditDriver(driver) {
-    if (driver.locked) {
-      return alert("This driver's row is locked. Unlock it first to edit.");
-    }
-    const nameInput = el("input", { type: "text", value: driver.name });
-    const numInput = el("input", { type: "number", min: "0", value: String(driver.number) });
-    const teamSelect = el(
-      "select",
-      {},
-      league.teams.map((t) =>
-        el("option", { value: t.id, text: t.name, ...(t.id === driver.teamId ? { selected: "selected" } : {}) })
-      )
-    );
-    const body = el("div", {}, [
-      el("div", { class: "field" }, [el("label", { text: "Driver name" }), nameInput]),
-      el("div", { class: "row" }, [
-        el("div", { class: "field", style: "flex:1" }, [el("label", { text: "Team" }), teamSelect]),
-        el("div", { class: "field", style: "width:90px" }, [el("label", { text: "Car #" }), numInput]),
-      ]),
-    ]);
-    openModal(`Edit ${driver.name}`, body, () => {
-      const name = nameInput.value.trim();
-      if (!name) return setModalError("Name is required.");
-      driver.name = name;
-      driver.teamId = teamSelect.value;
-      driver.number = numInput.value === "" ? 0 : parseInt(numInput.value, 10);
-      markDirty();
-      closeModal();
-      renderAll();
-    });
-  }
-
-  // Edit an existing team: name + color (Teams tab only).
-  function openEditTeam(team) {
-    const nameInput = el("input", { type: "text", value: team.name });
-    const colorInput = el("input", { type: "color", value: team.color });
-    const body = el("div", {}, [
-      el("div", { class: "field" }, [el("label", { text: "Team name" }), nameInput]),
-      el("div", { class: "field" }, [el("label", { text: "Row accent color" }), colorInput]),
-    ]);
-    openModal(`Edit ${team.name}`, body, () => {
-      const name = nameInput.value.trim();
-      if (!name) return setModalError("Name is required.");
-      team.name = name;
-      team.color = colorInput.value;
-      markDirty();
-      closeModal();
-      renderAll();
-    });
-  }
-
   function removeTeam(teamId) {
     const team = teamById(teamId);
     const teamDrivers = league.drivers.filter((d) => d.teamId === teamId);
@@ -714,6 +700,8 @@
   function renderDriverBoard() {
     const tbody = $("#driver-board tbody");
     tbody.innerHTML = "";
+    // Total columns: 4 read-only + 3 edit-only (No., Locked, actions).
+    const cols = editMode ? 7 : 4;
 
     // Sort by points desc, ties broken alphabetically by name.
     const standings = WSS.driverStandings(league.drivers, league.results).sort(
@@ -724,134 +712,114 @@
 
     if (standings.length === 0) {
       tbody.appendChild(
-        el("tr", {}, [
-          el("td", { colspan: 4, class: "empty-cell", text: "No drivers yet." }),
-        ])
+        el("tr", {}, [el("td", { colspan: cols, class: "empty-cell", text: "No drivers yet." })])
       );
       return;
     }
 
     standings.forEach((entry, i) => {
-      const team = teamById(entry.driver.teamId);
-      tbody.appendChild(
-        el("tr", { class: podiumClass(i) }, [
-          el("td", { class: "col-pos num", text: String(i + 1) }),
-          el("td", { class: "name-cell", text: entry.driver.name }),
-          el("td", {}, [teamChip(team)]),
-          el("td", { class: "col-pts num", text: String(entry.points) }),
-        ])
-      );
-    });
-  }
-
-  // --- Driver roster editor (Drivers tab, edit mode) -------------------------
-  // The single place to add / rename / re-team / renumber / lock / remove a
-  // driver. Reads and writes the same league.drivers array.
-
-  function renderDriverRoster() {
-    const tbody = $("#driver-roster tbody");
-    if (!tbody) return;
-    tbody.innerHTML = "";
-
-    if (league.drivers.length === 0) {
-      tbody.appendChild(
-        el("tr", {}, [
-          el("td", { colspan: 5, class: "empty-cell", text: "No drivers yet. Use “+ Driver”." }),
-        ])
-      );
-      return;
-    }
-
-    for (const driver of league.drivers) {
+      const driver = entry.driver;
       const team = teamById(driver.teamId);
-      const tr = el("tr", { class: driver.locked ? "roster-locked" : "" });
-      tr.appendChild(el("td", { class: "name-cell", text: driver.name }));
-      tr.appendChild(el("td", {}, [teamChip(team)]));
-      tr.appendChild(el("td", { class: "col-num num", text: `#${driver.number}` }));
-      // Lock toggle
-      const lockCell = el("td", { class: "col-lock" });
-      lockCell.appendChild(
-        el("button", {
-          class: `btn small ${driver.locked ? "" : "ghost"}`,
-          text: driver.locked ? "🔒 Locked" : "Unlocked",
-          title: driver.locked ? "Click to unlock this row" : "Click to lock this row",
-          onclick: () => toggleLock(driver.id),
-        })
-      );
-      tr.appendChild(lockCell);
-      // Edit / Remove
-      const actCell = el("td", { class: "col-act" });
-      actCell.appendChild(
-        el("button", {
-          class: "btn small",
-          text: "Edit",
-          title: driver.locked ? "Unlock first to edit" : "Edit driver",
-          onclick: () => openEditDriver(driver),
-        })
-      );
-      actCell.appendChild(
-        el("button", {
-          class: "btn small danger",
-          text: "Remove",
-          onclick: () => removeDriver(driver.id),
-        })
-      );
-      tr.appendChild(actCell);
+      const tr = el("tr", { class: podiumClass(i) });
+
+      tr.appendChild(el("td", { class: "col-pos num", text: String(i + 1) }));
+
+      // Driver name: static in read-only, editable input in edit mode (rename).
+      if (editMode) {
+        const nameInput = el("input", {
+          type: "text",
+          class: "inline-text",
+          value: driver.name,
+          disabled: driver.locked ? "disabled" : null,
+          onchange: (e) => {
+            const v = e.target.value.trim();
+            if (v) {
+              driver.name = v;
+              markDirty();
+            } else {
+              e.target.value = driver.name; // reject empty
+            }
+          },
+        });
+        tr.appendChild(el("td", { class: "name-cell" }, [nameInput]));
+      } else {
+        tr.appendChild(el("td", { class: "name-cell", text: driver.name }));
+      }
+
+      // Team cell: chip in read-only, dropdown in edit mode.
+      if (editMode) {
+        const teamSelect = el(
+          "select",
+          {
+            class: "inline-select",
+            disabled: driver.locked ? "disabled" : null,
+            onchange: (e) => {
+              driver.teamId = e.target.value;
+              markDirty();
+              renderAll();
+            },
+          },
+          league.teams.map((t) =>
+            el("option", { value: t.id, text: t.name, ...(t.id === driver.teamId ? { selected: "selected" } : {}) })
+          )
+        );
+        tr.appendChild(el("td", {}, [teamSelect]));
+      } else {
+        tr.appendChild(el("td", {}, [teamChip(team)]));
+      }
+
+      tr.appendChild(el("td", { class: "col-pts num", text: String(entry.points) }));
+
+      // Edit-only cells: No. / Locked / actions.
+      if (editMode) {
+        const numInput = el("input", {
+          type: "number",
+          class: "inline-num num",
+          min: "0",
+          value: String(driver.number),
+          disabled: driver.locked ? "disabled" : null,
+          onchange: (e) => {
+            driver.number = e.target.value === "" ? 0 : parseInt(e.target.value, 10);
+            markDirty();
+          },
+        });
+        tr.appendChild(el("td", { class: "col-num edit-only-cell" }, [numInput]));
+
+        const lockCell = el("td", { class: "col-lock edit-only-cell" });
+        lockCell.appendChild(
+          el("button", {
+            class: `btn small ${driver.locked ? "" : "ghost"}`,
+            text: driver.locked ? "🔒 Locked" : "Unlocked",
+            title: driver.locked ? "Click to unlock" : "Click to lock",
+            onclick: () => toggleLock(driver.id),
+          })
+        );
+        tr.appendChild(lockCell);
+
+        const actCell = el("td", { class: "col-act edit-only-cell" });
+        actCell.appendChild(
+          el("button", {
+            class: "btn small danger",
+            text: "Remove",
+            onclick: () => removeDriver(driver.id),
+          })
+        );
+        tr.appendChild(actCell);
+      }
+
       tbody.appendChild(tr);
-    }
-  }
-
-  // --- Team roster editor (Teams tab, edit mode) -----------------------------
-  // The single place to add / rename / recolor / remove a team.
-
-  function renderTeamRoster() {
-    const tbody = $("#team-roster tbody");
-    if (!tbody) return;
-    tbody.innerHTML = "";
-
-    if (league.teams.length === 0) {
-      tbody.appendChild(
-        el("tr", {}, [
-          el("td", { colspan: 4, class: "empty-cell", text: "No teams yet. Use “+ Team”." }),
-        ])
-      );
-      return;
-    }
-
-    for (const team of league.teams) {
-      const count = league.drivers.filter((d) => d.teamId === team.id).length;
-      const tr = el("tr");
-      tr.appendChild(
-        el("td", { class: "col-color" }, [
-          el("span", { class: "chip-dot swatch", style: `background:${team.color}` }),
-        ])
-      );
-      tr.appendChild(el("td", { class: "name-cell", text: team.name }));
-      tr.appendChild(el("td", { class: "col-num num", text: String(count) }));
-      const actCell = el("td", { class: "col-act" });
-      actCell.appendChild(
-        el("button", {
-          class: "btn small",
-          text: "Edit",
-          onclick: () => openEditTeam(team),
-        })
-      );
-      actCell.appendChild(
-        el("button", {
-          class: "btn small danger",
-          text: "Remove",
-          onclick: () => removeTeam(team.id),
-        })
-      );
-      tr.appendChild(actCell);
-      tbody.appendChild(tr);
-    }
+    });
   }
 
   // --- 2. Team Standings board (expandable rows) -----------------------------
 
   // Tracks which team rows are expanded across re-renders.
   const expandedTeams = new Set();
+
+  // Columns: 3 read-only (Pos, Team, Pts) + 2 edit-only (Color, actions).
+  function teamBoardCols() {
+    return editMode ? 5 : 3;
+  }
 
   function renderTeamBoard() {
     const tbody = $("#team-board tbody");
@@ -867,7 +835,7 @@
     if (standings.length === 0) {
       tbody.appendChild(
         el("tr", {}, [
-          el("td", { colspan: 3, class: "empty-cell", text: "No teams yet." }),
+          el("td", { colspan: teamBoardCols(), class: "empty-cell", text: "No teams yet." }),
         ])
       );
       return;
@@ -877,18 +845,68 @@
       const team = entry.team;
       const isOpen = expandedTeams.has(team.id);
 
+      // Team name: static in read-only, editable input in edit mode (rename).
+      let nameNode;
+      if (editMode) {
+        nameNode = el("input", {
+          type: "text",
+          class: "inline-text",
+          value: team.name,
+          onclick: (e) => e.stopPropagation(), // don't toggle expand
+          onchange: (e) => {
+            const v = e.target.value.trim();
+            if (v) {
+              team.name = v;
+              markDirty();
+              renderAll();
+            } else {
+              e.target.value = team.name;
+            }
+          },
+        });
+      } else {
+        nameNode = el("span", { class: "name-cell", text: team.name });
+      }
+
       const row = el("tr", { class: `team-standing ${podiumClass(i)} ${isOpen ? "open" : ""}` }, [
         el("td", { class: "col-pos num", text: String(i + 1) }),
         el("td", {}, [
           el("span", { class: "twisty", text: isOpen ? "▾" : "▸" }),
-          el("span", {
-            class: "chip-dot swatch",
-            style: `background:${team.color}`,
-          }),
-          el("span", { class: "name-cell", text: team.name }),
+          el("span", { class: "chip-dot swatch", style: `background:${team.color}` }),
+          nameNode,
         ]),
         el("td", { class: "col-pts num", text: String(entry.points) }),
       ]);
+
+      if (editMode) {
+        // Color picker
+        const colorInput = el("input", {
+          type: "color",
+          class: "inline-color",
+          value: team.color,
+          onclick: (e) => e.stopPropagation(),
+          onchange: (e) => {
+            team.color = e.target.value;
+            markDirty();
+            renderAll();
+          },
+        });
+        row.appendChild(el("td", { class: "col-color edit-only-cell" }, [colorInput]));
+        // Remove
+        const actCell = el("td", { class: "col-act edit-only-cell" });
+        actCell.appendChild(
+          el("button", {
+            class: "btn small danger",
+            text: "Remove",
+            onclick: (e) => {
+              e.stopPropagation();
+              removeTeam(team.id);
+            },
+          })
+        );
+        row.appendChild(actCell);
+      }
+
       row.addEventListener("click", () => {
         if (expandedTeams.has(team.id)) expandedTeams.delete(team.id);
         else expandedTeams.add(team.id);
@@ -903,7 +921,7 @@
   // Expanded detail: for each race, which drivers scored for the team
   // (teamRace:true) and how much.
   function renderTeamBreakdownRow(team) {
-    const detail = el("td", { colspan: 3, class: "breakdown" });
+    const detail = el("td", { colspan: teamBoardCols(), class: "breakdown" });
 
     for (const race of league.races) {
       const scorers = league.drivers
@@ -1371,9 +1389,7 @@
   function renderAll() {
     $("#league-title").textContent = league.title;
     renderGrid();
-    renderDriverRoster();
     renderDriverBoard();
-    renderTeamRoster();
     renderTeamBoard();
     renderStageCards();
     renderPenaltyBoard();

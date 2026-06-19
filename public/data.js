@@ -35,7 +35,7 @@
     ],
     results: {
       // --- R1 ---
-      "d-vega_r1": { position: 1, status: "finished", teamRace: true },
+      "d-vega_r1": { position: 1, status: "finished", teamRace: true, fastestLap: true },
       "d-ito_r1": { position: 5, status: "finished", teamRace: true },
       "d-rourke_r1": { position: 2, status: "finished", teamRace: true },
       "d-bauer_r1": { position: 8, status: "finished", teamRace: true },
