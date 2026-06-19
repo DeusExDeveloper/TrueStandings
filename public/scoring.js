@@ -68,6 +68,9 @@
    * that driver, across all races, regardless of the teamRace flag.
    * A driver's own total always counts every race they scored in.
    *
+   * Penalties are NOT deducted here — the Penalties board is informational only
+   * and does not affect computed totals.
+   *
    * @param {string} driverId
    * @param {Object<string, object>} results
    * @returns {number}

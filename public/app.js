@@ -89,17 +89,43 @@
     return league.teams.find((t) => t.id === id);
   }
 
-  // Convert a #rrggbb (or #rgb) hex color to an rgba() string at the given
-  // alpha. Used for the subtle team-tinted cell highlights / row blocks.
-  function hexToRgba(hex, alpha) {
+  // Parse a #rrggbb (or #rgb) hex to [r,g,b]; falls back to mid-grey.
+  function parseHex(hex) {
     let h = (hex || "").replace("#", "");
     if (h.length === 3) h = h.split("").map((c) => c + c).join("");
-    if (h.length !== 6) return `rgba(128,128,128,${alpha})`;
-    const r = parseInt(h.slice(0, 2), 16);
-    const g = parseInt(h.slice(2, 4), 16);
-    const b = parseInt(h.slice(4, 6), 16);
+    if (h.length !== 6) return [128, 128, 128];
+    return [
+      parseInt(h.slice(0, 2), 16),
+      parseInt(h.slice(2, 4), 16),
+      parseInt(h.slice(4, 6), 16),
+    ];
+  }
+
+  // Convert a hex color to an rgba() string at the given alpha. Used for the
+  // non-sticky team-tinted race cells, which can be translucent because nothing
+  // scrolls underneath them.
+  function hexToRgba(hex, alpha) {
+    const [r, g, b] = parseHex(hex);
     return `rgba(${r},${g},${b},${alpha})`;
   }
+
+  // Composite `fg` over the opaque `bg` at `alpha`, returning a SOLID #rrggbb.
+  // Used for sticky columns (Team/Driver/No.) where a translucent background
+  // would let the horizontally-scrolled race columns bleed through.
+  function blendHex(fg, bg, alpha) {
+    const [fr, fg_, fb] = parseHex(fg);
+    const [br, bg_, bb] = parseHex(bg);
+    const mix = (f, b) => Math.round(f * alpha + b * (1 - alpha));
+    const hx = (n) => n.toString(16).padStart(2, "0");
+    return `#${hx(mix(fr, br))}${hx(mix(fg_, bg_))}${hx(mix(fb, bb))}`;
+  }
+
+  // Opaque base background for each team block (must match the CSS block rules).
+  const BLOCK_BG = {
+    "block-even": "#121419", // var(--bg-raised)
+    "block-odd": "#0e1014",
+    "block-orphan": "#140e0e",
+  };
 
   function posTagText(result) {
     if (!result) return "—";
@@ -224,22 +250,18 @@
       class: `mg-row ${blockClass} ${driver.locked ? "locked" : ""}`,
     });
 
-    // LOCKED cell (sticky)
-    const lockCell = el("td", { class: "mg-lock sticky-l" });
+    // Opaque base bg for this block + a SOLID team tint blended over it. Sticky
+    // columns must be fully opaque or the horizontally-scrolled race cells bleed
+    // through them.
+    const baseBg = BLOCK_BG[blockClass] || "#121419";
+    const teamTintSolid = blendHex(team.color, baseBg, 0.22);
+
+    // LOCKED cell (sticky) — display only. The lock is toggled on the Drivers
+    // tab (this tab is for entering results, not managing the roster).
+    const lockCell = el("td", { class: "mg-lock sticky-l", style: `background:${baseBg}` });
     if (driver.locked) {
-      lockCell.appendChild(el("span", { class: "lock-icon", text: "🔒" }));
-    }
-    if (editMode) {
       lockCell.appendChild(
-        el("button", {
-          class: "btn small lock-toggle",
-          text: driver.locked ? "unlock" : "lock",
-          title: driver.locked ? "Unlock this row" : "Lock this row",
-          onclick: (e) => {
-            e.stopPropagation();
-            toggleLock(driver.id);
-          },
-        })
+        el("span", { class: "lock-icon", text: "🔒", title: "Row locked (manage on Drivers tab)" })
       );
     }
     tr.appendChild(lockCell);
@@ -250,31 +272,28 @@
     const teamCell = el("td", {
       class: "mg-team sticky-l",
       title: team.name,
-      style: `background:${hexToRgba(team.color, 0.22)};box-shadow:inset 4px 0 0 ${team.color}`,
+      style: `background:${teamTintSolid};box-shadow:inset 4px 0 0 ${team.color}`,
     });
     teamCell.appendChild(el("span", { class: "mg-team-name", text: team.name }));
     tr.appendChild(teamCell);
 
-    // DRIVER cell (sticky)
-    const driverCell = el("td", { class: "mg-driver sticky-l", title: driver.name });
+    // DRIVER cell (sticky) — display only; managed on the Drivers tab.
+    const driverCell = el("td", {
+      class: "mg-driver sticky-l",
+      title: driver.name,
+      style: `background:${baseBg}`,
+    });
     driverCell.appendChild(el("span", { class: "dname", text: driver.name }));
-    if (editMode && team.id) {
-      driverCell.appendChild(
-        el("button", {
-          class: "btn small danger driver-remove",
-          text: "✕",
-          title: `Remove ${driver.name}`,
-          onclick: (e) => {
-            e.stopPropagation();
-            removeDriver(driver.id);
-          },
-        })
-      );
-    }
     tr.appendChild(driverCell);
 
     // NUMBER cell (sticky)
-    tr.appendChild(el("td", { class: "mg-num sticky-l num", text: `#${driver.number}` }));
+    tr.appendChild(
+      el("td", {
+        class: "mg-num sticky-l num",
+        text: `#${driver.number}`,
+        style: `background:${baseBg}`,
+      })
+    );
 
     // RACE cells
     for (const race of league.races) {
@@ -282,9 +301,15 @@
     }
 
     // TOTAL cell (sticky right) — reuses driverPoints(), the same function the
-    // Driver Standings board uses.
+    // Driver Standings board uses. Opaque bg so race cells don't bleed through.
     const total = WSS.driverPoints(driver.id, league.results);
-    tr.appendChild(el("td", { class: "mg-total sticky-r num", text: String(total) }));
+    tr.appendChild(
+      el("td", {
+        class: "mg-total sticky-r num",
+        text: String(total),
+        style: `background:${baseBg}`,
+      })
+    );
 
     return tr;
   }
@@ -601,6 +626,73 @@
     renderAll();
   }
 
+  // Edit an existing driver: name, team, car number (Drivers tab only).
+  function openEditDriver(driver) {
+    if (driver.locked) {
+      return alert("This driver's row is locked. Unlock it first to edit.");
+    }
+    const nameInput = el("input", { type: "text", value: driver.name });
+    const numInput = el("input", { type: "number", min: "0", value: String(driver.number) });
+    const teamSelect = el(
+      "select",
+      {},
+      league.teams.map((t) =>
+        el("option", { value: t.id, text: t.name, ...(t.id === driver.teamId ? { selected: "selected" } : {}) })
+      )
+    );
+    const body = el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Driver name" }), nameInput]),
+      el("div", { class: "row" }, [
+        el("div", { class: "field", style: "flex:1" }, [el("label", { text: "Team" }), teamSelect]),
+        el("div", { class: "field", style: "width:90px" }, [el("label", { text: "Car #" }), numInput]),
+      ]),
+    ]);
+    openModal(`Edit ${driver.name}`, body, () => {
+      const name = nameInput.value.trim();
+      if (!name) return setModalError("Name is required.");
+      driver.name = name;
+      driver.teamId = teamSelect.value;
+      driver.number = numInput.value === "" ? 0 : parseInt(numInput.value, 10);
+      markDirty();
+      closeModal();
+      renderAll();
+    });
+  }
+
+  // Edit an existing team: name + color (Teams tab only).
+  function openEditTeam(team) {
+    const nameInput = el("input", { type: "text", value: team.name });
+    const colorInput = el("input", { type: "color", value: team.color });
+    const body = el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Team name" }), nameInput]),
+      el("div", { class: "field" }, [el("label", { text: "Row accent color" }), colorInput]),
+    ]);
+    openModal(`Edit ${team.name}`, body, () => {
+      const name = nameInput.value.trim();
+      if (!name) return setModalError("Name is required.");
+      team.name = name;
+      team.color = colorInput.value;
+      markDirty();
+      closeModal();
+      renderAll();
+    });
+  }
+
+  function removeTeam(teamId) {
+    const team = teamById(teamId);
+    const teamDrivers = league.drivers.filter((d) => d.teamId === teamId);
+    if (teamDrivers.length > 0) {
+      return alert(
+        `${team ? team.name : "This team"} still has ${teamDrivers.length} driver(s). ` +
+          "Move or remove them (on the Drivers tab) before removing the team."
+      );
+    }
+    if (!confirm(`Remove ${team ? team.name : "team"}?`)) return;
+    league.teams = league.teams.filter((t) => t.id !== teamId);
+    markDirty();
+    renderAll();
+  }
+
   // --- shared helpers for boards ---------------------------------------------
 
   function teamChip(team) {
@@ -650,6 +742,110 @@
         ])
       );
     });
+  }
+
+  // --- Driver roster editor (Drivers tab, edit mode) -------------------------
+  // The single place to add / rename / re-team / renumber / lock / remove a
+  // driver. Reads and writes the same league.drivers array.
+
+  function renderDriverRoster() {
+    const tbody = $("#driver-roster tbody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+
+    if (league.drivers.length === 0) {
+      tbody.appendChild(
+        el("tr", {}, [
+          el("td", { colspan: 5, class: "empty-cell", text: "No drivers yet. Use “+ Driver”." }),
+        ])
+      );
+      return;
+    }
+
+    for (const driver of league.drivers) {
+      const team = teamById(driver.teamId);
+      const tr = el("tr", { class: driver.locked ? "roster-locked" : "" });
+      tr.appendChild(el("td", { class: "name-cell", text: driver.name }));
+      tr.appendChild(el("td", {}, [teamChip(team)]));
+      tr.appendChild(el("td", { class: "col-num num", text: `#${driver.number}` }));
+      // Lock toggle
+      const lockCell = el("td", { class: "col-lock" });
+      lockCell.appendChild(
+        el("button", {
+          class: `btn small ${driver.locked ? "" : "ghost"}`,
+          text: driver.locked ? "🔒 Locked" : "Unlocked",
+          title: driver.locked ? "Click to unlock this row" : "Click to lock this row",
+          onclick: () => toggleLock(driver.id),
+        })
+      );
+      tr.appendChild(lockCell);
+      // Edit / Remove
+      const actCell = el("td", { class: "col-act" });
+      actCell.appendChild(
+        el("button", {
+          class: "btn small",
+          text: "Edit",
+          title: driver.locked ? "Unlock first to edit" : "Edit driver",
+          onclick: () => openEditDriver(driver),
+        })
+      );
+      actCell.appendChild(
+        el("button", {
+          class: "btn small danger",
+          text: "Remove",
+          onclick: () => removeDriver(driver.id),
+        })
+      );
+      tr.appendChild(actCell);
+      tbody.appendChild(tr);
+    }
+  }
+
+  // --- Team roster editor (Teams tab, edit mode) -----------------------------
+  // The single place to add / rename / recolor / remove a team.
+
+  function renderTeamRoster() {
+    const tbody = $("#team-roster tbody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+
+    if (league.teams.length === 0) {
+      tbody.appendChild(
+        el("tr", {}, [
+          el("td", { colspan: 4, class: "empty-cell", text: "No teams yet. Use “+ Team”." }),
+        ])
+      );
+      return;
+    }
+
+    for (const team of league.teams) {
+      const count = league.drivers.filter((d) => d.teamId === team.id).length;
+      const tr = el("tr");
+      tr.appendChild(
+        el("td", { class: "col-color" }, [
+          el("span", { class: "chip-dot swatch", style: `background:${team.color}` }),
+        ])
+      );
+      tr.appendChild(el("td", { class: "name-cell", text: team.name }));
+      tr.appendChild(el("td", { class: "col-num num", text: String(count) }));
+      const actCell = el("td", { class: "col-act" });
+      actCell.appendChild(
+        el("button", {
+          class: "btn small",
+          text: "Edit",
+          onclick: () => openEditTeam(team),
+        })
+      );
+      actCell.appendChild(
+        el("button", {
+          class: "btn small danger",
+          text: "Remove",
+          onclick: () => removeTeam(team.id),
+        })
+      );
+      tr.appendChild(actCell);
+      tbody.appendChild(tr);
+    }
   }
 
   // --- 2. Team Standings board (expandable rows) -----------------------------
@@ -1175,7 +1371,9 @@
   function renderAll() {
     $("#league-title").textContent = league.title;
     renderGrid();
+    renderDriverRoster();
     renderDriverBoard();
+    renderTeamRoster();
     renderTeamBoard();
     renderStageCards();
     renderPenaltyBoard();

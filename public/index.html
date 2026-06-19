@@ -33,8 +33,35 @@
         <button class="tab" data-view="penalties">Penalties</button>
       </nav>
 
-      <!-- 1. Driver Standings board (public read-only) -->
+      <!-- 1. Driver Standings + roster management (edit mode) -->
       <section id="drivers-view" class="view">
+        <div class="editor-toolbar">
+          <button id="btn-add-driver" class="btn">+ Driver</button>
+          <span class="toolbar-note">
+            The only place to add, rename, re-team, renumber, lock or remove
+            drivers.
+          </span>
+        </div>
+
+        <!-- Roster editor — only shown in edit mode -->
+        <div class="panel edit-only-panel" id="driver-roster-panel">
+          <h2>Driver Roster</h2>
+          <div class="board-wrap">
+            <table class="board roster-board" id="driver-roster">
+              <thead>
+                <tr>
+                  <th>Driver</th>
+                  <th>Team</th>
+                  <th class="col-num">No.</th>
+                  <th class="col-lock">Locked</th>
+                  <th class="col-act"></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="panel">
           <h2>Driver Standings</h2>
           <div class="board-wrap">
@@ -52,14 +79,39 @@
           </div>
         </div>
         <p class="hint">
-          Sorted by total points (ties broken alphabetically). Every race a driver
-          scored in counts, regardless of the Team / Independent flag. Top 3 in
-          gold / silver / bronze.
+          Sorted by total points (ties broken alphabetically). Every race a
+          driver scored in counts, regardless of the Team / Independent flag.
+          Top 3 in gold / silver / bronze.
         </p>
       </section>
 
-      <!-- 2. Team Standings board + stage cards (public read-only) -->
+      <!-- 2. Team Standings + roster management (edit mode) + stage cards -->
       <section id="teams-view" class="view">
+        <div class="editor-toolbar">
+          <button id="btn-add-team" class="btn">+ Team</button>
+          <span class="toolbar-note">
+            The only place to add, rename, recolor or remove teams.
+          </span>
+        </div>
+
+        <!-- Team roster editor — only shown in edit mode -->
+        <div class="panel edit-only-panel" id="team-roster-panel">
+          <h2>Team Roster</h2>
+          <div class="board-wrap">
+            <table class="board roster-board" id="team-roster">
+              <thead>
+                <tr>
+                  <th class="col-color">Color</th>
+                  <th>Team</th>
+                  <th class="col-num">Drivers</th>
+                  <th class="col-act"></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="teams-layout">
           <div class="panel">
             <h2>Team Standings</h2>
@@ -123,9 +175,11 @@
            Read-only when locked, click-to-edit cells when unlocked. -->
       <section id="grid-view" class="view">
         <div class="editor-toolbar">
-          <button id="btn-add-team" class="btn">+ Team</button>
-          <button id="btn-add-driver" class="btn">+ Driver</button>
           <button id="btn-add-race" class="btn">+ Race / Sprint</button>
+          <span class="toolbar-note">
+            Enter results here. Manage drivers on the Drivers tab, teams on the
+            Teams tab.
+          </span>
         </div>
         <div id="warn-banner" class="warn-banner"></div>
         <div class="grid-wrap master-grid-wrap"></div>
