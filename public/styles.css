@@ -291,8 +291,9 @@ table.master-grid {
 }
 
 /* --- sticky columns ---
-   Left: LOCKED (0) · Team (44) · Driver (104) · No. (244)
-   Right: TOTAL. Offsets must match the column widths below. */
+   Left edge offsets must equal the cumulative widths of the columns to their
+   left:  LOCKED 44 -> Team @44 (w130) -> Driver @174 (w150) -> No. @324 (w52).
+   Right: TOTAL. */
 .master-grid .sticky-l {
   position: sticky;
   z-index: 4;
@@ -317,19 +318,28 @@ table.master-grid {
   text-align: center;
   padding: 6px 4px;
 }
+/* Team & Driver: single line, comfortable width, ellipsis if unusually long. */
 .master-grid .mg-team {
   left: 44px;
-  width: 60px;
-  min-width: 60px;
+  width: 130px;
+  min-width: 130px;
+  max-width: 130px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   border-right: 1px solid var(--border-strong);
 }
 .master-grid .mg-driver {
-  left: 104px;
-  width: 140px;
-  min-width: 140px;
+  left: 174px;
+  width: 150px;
+  min-width: 150px;
+  max-width: 150px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .master-grid .mg-num {
-  left: 244px;
+  left: 324px;
   width: 52px;
   min-width: 52px;
   text-align: right;
@@ -337,15 +347,17 @@ table.master-grid {
   border-right: 1px solid var(--border-strong);
 }
 
-/* team cell: vertical name, tinted (inline bg/box-shadow set per team) */
+/* team cell: name on a single line (repeated on every row), tinted via inline
+   bg/box-shadow set per team. */
 .master-grid .mg-team .mg-team-name {
   display: block;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--text);
-  white-space: normal;
-  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* alternating team blocks: a subtle background shift on the body cells so

@@ -197,26 +197,18 @@
       const blockClass = blockIndex % 2 === 0 ? "block-even" : "block-odd";
       blockIndex += 1;
 
-      teamDrivers.forEach((driver, i) => {
-        tbody.appendChild(
-          renderMasterRow(driver, team, blockClass, i === 0, teamDrivers.length)
-        );
-      });
+      for (const driver of teamDrivers) {
+        tbody.appendChild(renderMasterRow(driver, team, blockClass));
+      }
     }
 
     // Orphaned drivers (no/unknown team) — keep them visible rather than lost.
     const orphaned = league.drivers.filter((d) => !teamById(d.teamId));
-    orphaned.forEach((driver, i) => {
+    for (const driver of orphaned) {
       tbody.appendChild(
-        renderMasterRow(
-          driver,
-          { id: null, color: "#666", name: "—" },
-          "block-orphan",
-          i === 0,
-          orphaned.length
-        )
+        renderMasterRow(driver, { id: null, color: "#666", name: "—" }, "block-orphan")
       );
-    });
+    }
 
     table.appendChild(tbody);
     wrap.appendChild(table);
@@ -224,10 +216,10 @@
     renderWarnings();
   }
 
-  // One driver row across the whole season.
-  // `firstInBlock` + `blockSize` let us render the team name once, spanning the
-  // block (like the reference sheet's merged team cell).
-  function renderMasterRow(driver, team, blockClass, firstInBlock, blockSize) {
+  // One driver row across the whole season. The team name is repeated on every
+  // row (no merged/rowspan cell); the per-row left-accent shadow stacks into a
+  // continuous bar per team block.
+  function renderMasterRow(driver, team, blockClass) {
     const tr = el("tr", {
       class: `mg-row ${blockClass} ${driver.locked ? "locked" : ""}`,
     });
@@ -252,19 +244,19 @@
     }
     tr.appendChild(lockCell);
 
-    // TEAM cell (sticky), tinted with the team color, rendered once per block.
-    if (firstInBlock) {
-      const teamCell = el("td", {
-        class: "mg-team sticky-l",
-        rowspan: blockSize > 1 ? String(blockSize) : null,
-        style: `background:${hexToRgba(team.color, 0.22)};box-shadow:inset 4px 0 0 ${team.color}`,
-      });
-      teamCell.appendChild(el("span", { class: "mg-team-name", text: team.name }));
-      tr.appendChild(teamCell);
-    }
+    // TEAM cell (sticky), tinted with the team color. Rendered on EVERY row so
+    // each driver's team is independently labeled — no merged/rowspan cell. The
+    // per-row inset shadow stacks into a continuous left-accent bar per block.
+    const teamCell = el("td", {
+      class: "mg-team sticky-l",
+      title: team.name,
+      style: `background:${hexToRgba(team.color, 0.22)};box-shadow:inset 4px 0 0 ${team.color}`,
+    });
+    teamCell.appendChild(el("span", { class: "mg-team-name", text: team.name }));
+    tr.appendChild(teamCell);
 
     // DRIVER cell (sticky)
-    const driverCell = el("td", { class: "mg-driver sticky-l" });
+    const driverCell = el("td", { class: "mg-driver sticky-l", title: driver.name });
     driverCell.appendChild(el("span", { class: "dname", text: driver.name }));
     if (editMode && team.id) {
       driverCell.appendChild(
