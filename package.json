@@ -1,0 +1,16 @@
+{
+  "name": "wss-standings",
+  "version": "1.0.0",
+  "description": "Shared standings tracker for an Assetto Corsa racing league (World Sim Series format)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "netlify dev",
+    "test": "npm run test:scoring && npm run test:fn",
+    "test:scoring": "node --test test/scoring.test.cjs",
+    "test:fn": "node --experimental-loader=./test/loader.mjs --test test/function.test.mjs"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  }
+}

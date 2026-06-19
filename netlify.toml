@@ -1,0 +1,13 @@
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+
+[dev]
+  publish = "public"
+  port = 8888
+
+# Friendly path: /api/standings -> the standings function
+[[redirects]]
+  from = "/api/standings"
+  to = "/.netlify/functions/standings"
+  status = 200

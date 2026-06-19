@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WSS Standings</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="tick"></span>
+        <h1 id="league-title">WSS Standings</h1>
+      </div>
+      <span class="subtitle">World Sim Series · timing screen</span>
+      <span class="spacer"></span>
+      <span id="save-status" class="save-status"></span>
+      <span id="mode-badge" class="mode-badge">Read-only</span>
+      <button id="btn-save" class="btn primary" style="display: none" disabled>
+        Save changes
+      </button>
+      <button id="btn-edit" class="btn">Unlock editing</button>
+      <button id="btn-lock" class="btn ghost" style="display: none">Lock</button>
+    </header>
+
+    <main>
+      <div id="offline-banner" class="warn-banner offline-banner"></div>
+
+      <nav class="tabs">
+        <button class="tab" data-view="drivers">Drivers</button>
+        <button class="tab" data-view="teams">Teams</button>
+        <button class="tab" data-view="penalties">Penalties</button>
+        <button class="tab edit-only" data-view="grid">Race Entry</button>
+      </nav>
+
+      <!-- 1. Driver Standings board (public read-only) -->
+      <section id="drivers-view" class="view">
+        <div class="panel">
+          <h2>Driver Standings</h2>
+          <div class="board-wrap">
+            <table class="board" id="driver-board">
+              <thead>
+                <tr>
+                  <th class="col-pos">Pos</th>
+                  <th>Driver</th>
+                  <th>Team</th>
+                  <th class="col-pts">Points</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <p class="hint">
+          Sorted by total points (ties broken alphabetically). Every race a driver
+          scored in counts, regardless of the Team / Independent flag. Top 3 in
+          gold / silver / bronze.
+        </p>
+      </section>
+
+      <!-- 2. Team Standings board + stage cards (public read-only) -->
+      <section id="teams-view" class="view">
+        <div class="teams-layout">
+          <div class="panel">
+            <h2>Team Standings</h2>
+            <div class="board-wrap">
+              <table class="board" id="team-board">
+                <thead>
+                  <tr>
+                    <th class="col-pos">Pos</th>
+                    <th>Team</th>
+                    <th class="col-pts">Points</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <p class="hint">
+              Only results flagged Team for a race count toward that team. Click a
+              row to expand the per-race team-driver breakdown.
+            </p>
+          </div>
+
+          <aside class="panel stage-panel">
+            <h2>Stage Top 3</h2>
+            <div id="stage-cards"></div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- 3. Penalties board (manual entry, edit mode only) -->
+      <section id="penalties-view" class="view">
+        <div class="editor-toolbar penalties-toolbar">
+          <button id="btn-add-penalty" class="btn">+ Add penalty entry</button>
+        </div>
+        <div class="panel">
+          <h2>Penalties</h2>
+          <div class="board-wrap">
+            <table class="board penalties-board" id="penalty-board">
+              <thead>
+                <tr>
+                  <th>Driver</th>
+                  <th class="col-pts">Pen. Pts</th>
+                  <th class="col-ban">Quali Ban</th>
+                  <th class="col-ban">Quali Ban 2</th>
+                  <th class="col-ban">Race Ban</th>
+                  <th class="col-ban">Season Ban</th>
+                  <th>Note</th>
+                  <th class="col-act edit-only-cell"></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <p class="hint">
+          Manual entry — mirrors the league spreadsheet and is not computed from
+          race results. Editable only in edit mode.
+        </p>
+      </section>
+
+      <!-- Race entry grid (edit mode only) -->
+      <section id="grid-view" class="view">
+        <div class="editor-toolbar">
+          <button id="btn-add-team" class="btn">+ Team</button>
+          <button id="btn-add-driver" class="btn">+ Driver</button>
+          <button id="btn-add-race" class="btn">+ Race / Sprint</button>
+        </div>
+        <div id="warn-banner" class="warn-banner"></div>
+        <div class="grid-wrap"></div>
+        <p class="hint">
+          Click a cell to enter a result. Each cell shows position · points and a
+          Team / Independent tag. Locked rows are read-only until unlocked.
+        </p>
+      </section>
+    </main>
+
+    <!-- Modal -->
+    <div id="modal-backdrop" class="modal-backdrop">
+      <div class="modal" role="dialog" aria-modal="true">
+        <h3 id="modal-title">Modal</h3>
+        <div id="modal-body"></div>
+        <div id="modal-err" class="err"></div>
+        <div id="modal-actions" class="actions"></div>
+      </div>
+    </div>
+
+    <script src="scoring.js"></script>
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
