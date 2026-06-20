@@ -189,3 +189,119 @@ test("teamStandings sorts high to low", () => {
     ["t1", "t2"] // 96, 26
   );
 });
+
+// --- stages ------------------------------------------------------------------
+
+// deepStrictEqual is realm-sensitive (scoring.js runs in a vm sandbox), so
+// compare arrays returned straight from the module via a string join.
+const join = (arr) => arr.join(",");
+
+test("stageGroupSizes: even split", () => {
+  assert.equal(join(WSS.stageGroupSizes(12)), "4,4,4");
+  assert.equal(join(WSS.stageGroupSizes(3)), "1,1,1");
+});
+
+test("stageGroupSizes: remainder goes to earlier stages first", () => {
+  assert.equal(join(WSS.stageGroupSizes(10)), "4,3,3"); // remainder 1
+  assert.equal(join(WSS.stageGroupSizes(11)), "4,4,3"); // remainder 2
+  assert.equal(join(WSS.stageGroupSizes(7)), "3,2,2");
+});
+
+test("assignRacesToStages: null when fewer than 3 main races", () => {
+  assert.equal(WSS.assignRacesToStages([]), null);
+  assert.equal(
+    WSS.assignRacesToStages([
+      { id: "r1", kind: "race" },
+      { id: "s1", kind: "sprint" },
+      { id: "r2", kind: "race" },
+    ]),
+    null
+  ); // only 2 main races
+});
+
+test("assignRacesToStages: sprint grouped with preceding main race's stage", () => {
+  // 3 main races -> [1,1,1]. R2 Sprint sits between main r2 and r3.
+  const races = [
+    { id: "r1", kind: "race" }, // Stage I
+    { id: "r2", kind: "race" }, // Stage II
+    { id: "r2s", kind: "sprint" }, // -> Stage II (follows r2)
+    { id: "r3", kind: "race" }, // Stage III
+  ];
+  const stages = WSS.assignRacesToStages(races);
+  assert.equal(join(stages[0].raceIds), "r1");
+  assert.equal(join(stages[1].raceIds), "r2,r2s"); // sprint joined Stage II
+  assert.equal(join(stages[2].raceIds), "r3");
+});
+
+test("assignRacesToStages: sprint before any main race joins the first stage", () => {
+  const races = [
+    { id: "s0", kind: "sprint" }, // no preceding main -> Stage I
+    { id: "r1", kind: "race" },
+    { id: "r2", kind: "race" },
+    { id: "r3", kind: "race" },
+  ];
+  const stages = WSS.assignRacesToStages(races);
+  assert.equal(join(stages[0].raceIds), "s0,r1");
+  assert.equal(join(stages[1].raceIds), "r2");
+  assert.equal(join(stages[2].raceIds), "r3");
+});
+
+test("stageStandings: null when not enough main races", () => {
+  assert.equal(WSS.stageStandings([{ id: "r1", kind: "race" }], [], {}), null);
+});
+
+test("stageStandings: per-stage totals include sprint points in the right stage", () => {
+  const races = [
+    { id: "r1", kind: "race" }, // Stage I
+    { id: "r2", kind: "race" }, // Stage II
+    { id: "r2s", kind: "sprint" }, // Stage II
+    { id: "r3", kind: "race" }, // Stage III
+  ];
+  const drivers = [{ id: "d1" }, { id: "d2" }];
+  const results = {
+    d1_r1: { position: 1, status: "finished", teamRace: true }, // S1: 36
+    d1_r2: { position: 2, status: "finished", teamRace: true }, // S2: 26
+    d1_r2s: { position: 1, status: "finished", teamRace: false }, // S2: 36 (sprint)
+    d1_r3: { position: 5, status: "finished", teamRace: true }, // S3: 15
+    d2_r1: { position: 2, status: "finished", teamRace: true }, // S1: 26
+    d2_r3: { position: 1, status: "finished", teamRace: true }, // S3: 36
+  };
+  const stages = WSS.stageStandings(races, drivers, results);
+  // Stage I: d1 36, d2 26
+  assert.deepEqual(
+    stages[0].standings.map((s) => `${s.driver.id}:${s.points}`),
+    ["d1:36", "d2:26"]
+  );
+  // Stage II: d1 = 26 (r2) + 36 (r2s sprint) = 62; d2 absent (0, filtered out)
+  assert.deepEqual(
+    stages[1].standings.map((s) => `${s.driver.id}:${s.points}`),
+    ["d1:62"]
+  );
+  // Stage III: d2 36, d1 15
+  assert.deepEqual(
+    stages[2].standings.map((s) => `${s.driver.id}:${s.points}`),
+    ["d2:36", "d1:15"]
+  );
+});
+
+test("stageStandings: keeps only top 3 per stage", () => {
+  const races = [
+    { id: "r1", kind: "race" },
+    { id: "r2", kind: "race" },
+    { id: "r3", kind: "race" },
+  ];
+  // 4 drivers all scoring in Stage I (r1); only top 3 should be returned.
+  const drivers = [{ id: "d1" }, { id: "d2" }, { id: "d3" }, { id: "d4" }];
+  const results = {
+    d1_r1: { position: 1, status: "finished", teamRace: true }, // 36
+    d2_r1: { position: 2, status: "finished", teamRace: true }, // 26
+    d3_r1: { position: 3, status: "finished", teamRace: true }, // 22
+    d4_r1: { position: 4, status: "finished", teamRace: true }, // 18
+  };
+  const stages = WSS.stageStandings(races, drivers, results);
+  assert.equal(stages[0].standings.length, 3);
+  assert.deepEqual(
+    stages[0].standings.map((s) => s.driver.id),
+    ["d1", "d2", "d3"]
+  );
+});

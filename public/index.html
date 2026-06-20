@@ -142,6 +142,17 @@
       <!-- Master race grid — the primary full-detail / entry view.
            Read-only when locked, click-to-edit cells when unlocked. -->
       <section id="grid-view" class="view">
+        <!-- Always-visible view controls (sort is a view-only setting) -->
+        <div class="grid-toolbar">
+          <label class="sort-control">
+            <span class="sort-label">Sort</span>
+            <select id="grid-sort">
+              <option value="team">By Team</option>
+              <option value="points">By Points</option>
+              <option value="name">By Name</option>
+            </select>
+          </label>
+        </div>
         <div class="editor-toolbar">
           <button id="btn-add-race" class="btn">+ Race / Sprint</button>
           <span class="toolbar-note">

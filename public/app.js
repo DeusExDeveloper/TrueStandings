@@ -19,9 +19,27 @@
   const PW_KEY = "wss-edit-pw"; // sessionStorage key (this tab only)
 
   let league = emptyLeague();
+  // Deep clone of the last state known to match the server (set on load and
+  // after a successful save). Used to revert in-memory edits on "discard".
+  let savedSnapshot = emptyLeague();
   let editMode = false;
+  // View-only Race Grid row ordering (not persisted): "team" | "points" | "name".
+  let gridSort = "team";
   let dirty = false; // unsaved in-memory edits since last load/save
   let backendOk = false; // did the initial fetch succeed?
+
+  // Record the current league as the clean, server-matching baseline.
+  function markSavedSnapshot() {
+    savedSnapshot = structuredClone(league);
+    dirty = false;
+    updateSaveButton();
+  }
+
+  // Revert all in-memory edits back to the last server-matching state.
+  function revertToSnapshot() {
+    league = structuredClone(savedSnapshot);
+    dirty = false;
+  }
 
   function emptyLeague() {
     return {
@@ -174,23 +192,26 @@
         class: `kind ${race.kind === "sprint" ? "sprint" : "race"}`,
         text: race.kind === "sprint" ? "SPR" : "RACE",
       });
-      const th = el("th", { class: "mg-race" }, [
-        document.createTextNode(race.label + " "),
-        kindBadge,
-      ]);
+      const th = el("th", {
+        class: `mg-race ${race.locked ? "race-locked" : ""}`,
+      }, [document.createTextNode(race.label + " "), kindBadge]);
+
+      // Per-race column lock toggle — edit mode only. Closed padlock = locked.
       if (editMode) {
-        th.appendChild(document.createElement("br"));
         th.appendChild(
           el("button", {
-            class: "btn small danger",
-            text: "remove",
-            title: `Remove ${race.label}`,
+            class: `race-lock-toggle ${race.locked ? "on" : ""}`,
+            text: race.locked ? "🔒" : "🔓",
+            title: race.locked ? `${race.label} is locked — click to unlock` : `Lock ${race.label}`,
             onclick: (e) => {
               e.stopPropagation();
-              removeRace(race.id);
+              toggleRaceLock(race.id);
             },
           })
         );
+      } else if (race.locked) {
+        // Read-only: still show the closed padlock as a status indicator.
+        th.appendChild(el("span", { class: "race-lock-indicator", text: "🔒", title: "Locked" }));
       }
       headRow.appendChild(th);
     }
@@ -198,42 +219,63 @@
     thead.appendChild(headRow);
     table.appendChild(thead);
 
-    // ---- body: team blocks sorted by team points desc ----
+    // ---- body: ordering depends on the view-only sort mode ----
     const tbody = el("tbody");
+    const orphanTeam = { id: null, color: "#666", name: "—" };
+    const teamFor = (driver) => teamById(driver.teamId) || orphanTeam;
 
-    // Use teamStandings to order team blocks by points (most competitive first).
-    const orderedTeams = WSS.teamStandings(
-      league.teams,
-      league.results,
-      league.drivers,
-      league.races
-    ).map((s) => s.team);
+    if (gridSort === "team") {
+      // Grouped by team block, teams by teamPoints() desc, drivers within by
+      // driverPoints() desc. Alternating block shading + accent bar.
+      const orderedTeams = WSS.teamStandings(
+        league.teams,
+        league.results,
+        league.drivers,
+        league.races
+      ).map((s) => s.team);
 
-    let blockIndex = 0;
-    for (const team of orderedTeams) {
-      const teamDrivers = league.drivers
-        .filter((d) => d.teamId === team.id)
-        .sort(
+      let blockIndex = 0;
+      for (const team of orderedTeams) {
+        const teamDrivers = league.drivers
+          .filter((d) => d.teamId === team.id)
+          .sort(
+            (a, b) =>
+              WSS.driverPoints(b.id, league.results) -
+              WSS.driverPoints(a.id, league.results)
+          );
+        if (teamDrivers.length === 0) continue;
+
+        const blockClass = blockIndex % 2 === 0 ? "block-even" : "block-odd";
+        blockIndex += 1;
+        for (const driver of teamDrivers) {
+          tbody.appendChild(renderMasterRow(driver, team, blockClass));
+        }
+      }
+
+      // Orphaned drivers (no/unknown team) — keep them visible rather than lost.
+      for (const driver of league.drivers.filter((d) => !teamById(d.teamId))) {
+        tbody.appendChild(renderMasterRow(driver, orphanTeam, "block-orphan"));
+      }
+    } else {
+      // Flat list — no team grouping. Each row still shows its team name +
+      // accent color. A single block class keeps backgrounds uniform.
+      const flat = league.drivers.slice();
+      if (gridSort === "points") {
+        flat.sort(
           (a, b) =>
             WSS.driverPoints(b.id, league.results) -
-            WSS.driverPoints(a.id, league.results)
+              WSS.driverPoints(a.id, league.results) ||
+            a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
         );
-      if (teamDrivers.length === 0) continue;
-
-      const blockClass = blockIndex % 2 === 0 ? "block-even" : "block-odd";
-      blockIndex += 1;
-
-      for (const driver of teamDrivers) {
-        tbody.appendChild(renderMasterRow(driver, team, blockClass));
+      } else {
+        // "name" — alphabetical A→Z
+        flat.sort((a, b) =>
+          a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+        );
       }
-    }
-
-    // Orphaned drivers (no/unknown team) — keep them visible rather than lost.
-    const orphaned = league.drivers.filter((d) => !teamById(d.teamId));
-    for (const driver of orphaned) {
-      tbody.appendChild(
-        renderMasterRow(driver, { id: null, color: "#666", name: "—" }, "block-orphan")
-      );
+      for (const driver of flat) {
+        tbody.appendChild(renderMasterRow(driver, teamFor(driver), "block-even"));
+      }
     }
 
     table.appendChild(tbody);
@@ -324,6 +366,14 @@
       WSS.isTeamRaceOverLimit(driver.teamId, race.id, league.results, league.drivers);
 
     const hasFastestLap = !!(result && result.fastestLap && result.position != null);
+    const raceLocked = !!race.locked;
+
+    // Background layering: a locked column shows a persistent yellow status
+    // tint (visible to everyone); otherwise the team-scored cells show the team
+    // tint. Locked wins so the whole column reads as locked at a glance.
+    let bg = null;
+    if (raceLocked) bg = "rgba(234, 179, 8, 0.16)"; // soft yellow (#eab308)
+    else if (isTeamScored) bg = hexToRgba(team.color, 0.18);
 
     const td = el("td", {
       class:
@@ -331,11 +381,13 @@
         (driver.locked ? " readonly" : "") +
         (isTeamScored ? " team-scored" : "") +
         (overLimit ? " over-limit" : "") +
-        (hasFastestLap ? " fastest-lap" : ""),
-      // Subtle team-color tint when this result scored for the team.
-      style: isTeamScored ? `background:${hexToRgba(team.color, 0.18)}` : null,
+        (hasFastestLap ? " fastest-lap" : "") +
+        (raceLocked ? " race-locked-cell" : ""),
+      style: bg ? `background:${bg}` : null,
       title: overLimit
         ? `Warning: ${team.name} has 3+ team-scoring drivers in ${race.label}`
+        : raceLocked
+        ? `${race.label} is locked`
         : hasFastestLap
         ? "Fastest lap"
         : "",
@@ -359,7 +411,18 @@
     // Clickable only when editable (unlocked app + unlocked row).
     if (!readonly) {
       td.classList.add("editable");
-      td.addEventListener("click", () => openCellEditor(driver, race));
+      td.addEventListener("click", () => {
+        if (race.locked) {
+          // Locked column: confirm before opening the editor.
+          confirmDialog(
+            `${race.label} is locked. Edit this result anyway?`,
+            () => openCellEditor(driver, race),
+            { title: "Locked race", confirmLabel: "Edit anyway", cancelLabel: "Cancel" }
+          );
+        } else {
+          openCellEditor(driver, race);
+        }
+      });
     }
     return td;
   }
@@ -401,7 +464,9 @@
   function openCellEditor(driver, race) {
     const existing = WSS.getResult(league.results, driver.id, race.id);
     const state = {
-      position: existing && existing.position != null ? existing.position : "",
+      // New/empty results default the position input to 0 (ready to type over);
+      // an existing saved position opens with its real value, not reset to 0.
+      position: existing && existing.position != null ? existing.position : 0,
       status: existing ? existing.status : "finished",
       teamRace: existing ? existing.teamRace : defaultTeamFlagFor(driver, race),
       fastestLap: existing ? !!existing.fastestLap : false,
@@ -519,10 +584,12 @@
     ]);
 
     openModal(`Result · ${posTagText(existing)}`, body, () => {
-      const posVal = posInput.value === "" ? null : parseInt(posInput.value, 10);
+      // Treat an empty box OR the placeholder 0 as "no position".
+      const raw = posInput.value === "" ? null : parseInt(posInput.value, 10);
+      const posVal = raw === 0 ? null : raw;
       const key = resultKey(driver.id, race.id);
       if (posVal == null && state.status === "finished") {
-        // empty finished entry = clear the result
+        // empty (or 0) finished entry = clear the result
         delete league.results[key];
       } else {
         league.results[key] = {
@@ -624,37 +691,52 @@
     openModal("Add race", body, () => {
       const label = labelInput.value.trim();
       if (!label) return setModalError("Label is required.");
-      league.races.push({ id: uid("r"), label, kind: kindSelect.value });
+      league.races.push({ id: uid("r"), label, kind: kindSelect.value, locked: false });
       markDirty();
       closeModal();
       renderAll();
     });
   }
 
-  function removeRace(raceId) {
+  // Toggle a race column's persisted lock (edit mode only). Stored as
+  // race.locked, separate from the per-driver row lock.
+  function toggleRaceLock(raceId) {
     const race = league.races.find((r) => r.id === raceId);
-    if (!confirm(`Remove ${race ? race.label : "race"} and all its results?`)) return;
-    league.races = league.races.filter((r) => r.id !== raceId);
-    for (const key of Object.keys(league.results)) {
-      if (key.endsWith(`_${raceId}`)) delete league.results[key];
-    }
+    if (!race) return;
+    race.locked = !race.locked;
     markDirty();
     renderAll();
   }
+
+  // Race deletion is intentionally not surfaced in the grid header anymore
+  // (too easy to misclick). Kept here for a future management surface.
+  function removeRace(raceId) {
+    const race = league.races.find((r) => r.id === raceId);
+    confirmRemove(`Remove ${race ? race.label : "race"} and all its results?`, () => {
+      league.races = league.races.filter((r) => r.id !== raceId);
+      for (const key of Object.keys(league.results)) {
+        if (key.endsWith(`_${raceId}`)) delete league.results[key];
+      }
+      markDirty();
+      renderAll();
+    });
+  }
+  void removeRace; // retained for future use; not wired to any control now
 
   function removeDriver(driverId) {
     const driver = league.drivers.find((d) => d.id === driverId);
     if (driver && driver.locked) {
       return alert("This driver's row is locked. Unlock it first to remove.");
     }
-    if (!confirm(`Remove ${driver ? driver.name : "driver"} and all their results?`)) return;
-    league.drivers = league.drivers.filter((d) => d.id !== driverId);
-    for (const key of Object.keys(league.results)) {
-      if (key.startsWith(`${driverId}_`)) delete league.results[key];
-    }
-    league.penalties = league.penalties.filter((p) => p.driverId !== driverId);
-    markDirty();
-    renderAll();
+    confirmRemove(`Remove ${driver ? driver.name : "driver"} and all their results?`, () => {
+      league.drivers = league.drivers.filter((d) => d.id !== driverId);
+      for (const key of Object.keys(league.results)) {
+        if (key.startsWith(`${driverId}_`)) delete league.results[key];
+      }
+      league.penalties = league.penalties.filter((p) => p.driverId !== driverId);
+      markDirty();
+      renderAll();
+    });
   }
 
   function toggleLock(driverId) {
@@ -673,10 +755,11 @@
           "Move or remove them (on the Drivers tab) before removing the team."
       );
     }
-    if (!confirm(`Remove ${team ? team.name : "team"}?`)) return;
-    league.teams = league.teams.filter((t) => t.id !== teamId);
-    markDirty();
-    renderAll();
+    confirmRemove(`Remove ${team ? team.name : "team"}?`, () => {
+      league.teams = league.teams.filter((t) => t.id !== teamId);
+      markDirty();
+      renderAll();
+    });
   }
 
   // --- shared helpers for boards ---------------------------------------------
@@ -951,61 +1034,39 @@
     return el("tr", { class: "breakdown-row" }, [detail]);
   }
 
-  // --- Stage Top 3 cards (manual entry) --------------------------------------
+  // --- Stage Top 3 cards (auto-computed from race results) -------------------
+  // Fully derived: the season's main races are split into 3 stages and each
+  // sprint counts toward its neighboring stage (see WSS.stageStandings). No
+  // manual entry.
 
   function renderStageCards() {
     const host = $("#stage-cards");
     host.innerHTML = "";
-    const stages = league.stages || [];
+
+    const stages = WSS.stageStandings(league.races, league.drivers, league.results);
+
+    // Fewer than 3 main races -> can't form 3 stages.
+    if (!stages) {
+      host.appendChild(el("div", { class: "stage-empty", text: "Not enough races yet" }));
+      return;
+    }
 
     for (const stage of stages) {
       const card = el("div", { class: "stage-card" });
       card.appendChild(el("div", { class: "stage-title", text: stage.label }));
 
-      (stage.rows || []).forEach((rowData, idx) => {
-        const medalClass = idx < 3 ? "p" + (idx + 1) : "";
-        const row = el("div", { class: `stage-row ${medalClass}` });
-        row.appendChild(el("span", { class: "stage-rank num", text: String(idx + 1) }));
-
-        if (editMode) {
-          const nameInput = el("input", {
-            type: "text",
-            class: "stage-input",
-            placeholder: "Driver",
-            value: rowData.name || "",
-          });
-          const ptsInput = el("input", {
-            type: "number",
-            class: "stage-input stage-pts num",
-            placeholder: "0",
-            value: rowData.points === "" || rowData.points == null ? "" : rowData.points,
-          });
-          nameInput.addEventListener("input", () => {
-            rowData.name = nameInput.value;
-            markDirty();
-          });
-          ptsInput.addEventListener("input", () => {
-            rowData.points = ptsInput.value === "" ? "" : parseInt(ptsInput.value, 10);
-            markDirty();
-          });
-          row.appendChild(nameInput);
-          row.appendChild(ptsInput);
-        } else {
-          row.appendChild(
-            el("span", { class: "stage-name", text: rowData.name || "—" })
-          );
-          row.appendChild(
-            el("span", {
-              class: "stage-pts num",
-              text:
-                rowData.points === "" || rowData.points == null
-                  ? "—"
-                  : String(rowData.points),
-            })
-          );
-        }
-        card.appendChild(row);
-      });
+      if (stage.standings.length === 0) {
+        card.appendChild(el("div", { class: "stage-none", text: "No results yet" }));
+      } else {
+        stage.standings.forEach((entry, idx) => {
+          const medalClass = idx < 3 ? "p" + (idx + 1) : "";
+          const row = el("div", { class: `stage-row ${medalClass}` });
+          row.appendChild(el("span", { class: "stage-rank num", text: String(idx + 1) }));
+          row.appendChild(el("span", { class: "stage-name", text: entry.driver.name }));
+          row.appendChild(el("span", { class: "stage-pts num", text: String(entry.points) }));
+          card.appendChild(row);
+        });
+      }
 
       host.appendChild(card);
     }
@@ -1048,11 +1109,12 @@
       // Penalty points
       tr.appendChild(el("td", { class: "col-pts num", text: String(pen.points || 0) }));
 
-      // Four ban toggle cells
+      // Four ban toggle cells. The per-field class (ban-qualiBan etc.) lets the
+      // stylesheet give each column its own filled severity color when active.
       for (const [field] of BAN_FIELDS) {
         const active = !!pen[field];
         const td = el("td", {
-          class: `col-ban ban-cell ${active ? "on" : ""} ${editMode ? "clickable" : ""}`,
+          class: `col-ban ban-cell ban-${field} ${active ? "on" : ""} ${editMode ? "clickable" : ""}`,
           text: active ? "✕" : "",
           title: editMode ? "Toggle" : "",
         });
@@ -1153,10 +1215,11 @@
   }
 
   function removePenalty(penId) {
-    if (!confirm("Remove this penalty entry?")) return;
-    league.penalties = league.penalties.filter((p) => p.id !== penId);
-    markDirty();
-    renderAll();
+    confirmRemove("Remove this penalty entry?", () => {
+      league.penalties = league.penalties.filter((p) => p.id !== penId);
+      markDirty();
+      renderAll();
+    });
   }
 
   // --- modal plumbing --------------------------------------------------------
@@ -1175,13 +1238,43 @@
     actions.innerHTML = "";
     (opts.extraButtons || []).forEach((b) => actions.appendChild(b));
     actions.appendChild(
-      el("button", { class: "btn ghost", text: "Cancel", onclick: closeModal })
+      el("button", { class: "btn ghost", text: opts.cancelLabel || "Cancel", onclick: closeModal })
     );
     actions.appendChild(
-      el("button", { class: "btn primary", text: "Save", onclick: () => onConfirm && onConfirm() })
+      el("button", {
+        class: `btn ${opts.confirmClass || "primary"}`,
+        text: opts.confirmLabel || "Save",
+        onclick: () => onConfirm && onConfirm(),
+      })
     );
 
     $("#modal-backdrop").classList.add("show");
+  }
+
+  // Generic confirmation modal styled like the rest of the app (replaces
+  // native confirm()). `onYes` runs only when the confirm button is clicked;
+  // Cancel / backdrop / Escape close it with no action.
+  function confirmDialog(message, onYes, opts = {}) {
+    const body = el("div", {}, [el("p", { class: "confirm-text", text: message })]);
+    openModal(opts.title || "Confirm", body, () => {
+      closeModal();
+      onYes();
+    }, {
+      confirmLabel: opts.confirmLabel || "Yes",
+      cancelLabel: opts.cancelLabel || "No",
+      confirmClass: opts.confirmClass || "primary",
+    });
+  }
+
+  // Destructive confirmation (red button, "Remove" / "Cancel"). Used by the
+  // removal actions.
+  function confirmRemove(message, onYes, opts = {}) {
+    confirmDialog(message, onYes, {
+      title: opts.title || "Confirm removal",
+      confirmLabel: opts.confirmLabel || "Remove",
+      cancelLabel: opts.cancelLabel || "Cancel",
+      confirmClass: "danger-solid",
+    });
   }
 
   function closeModal() {
@@ -1202,12 +1295,13 @@
       const data = await res.json();
       league = normalizeLeague(data.league);
       backendOk = true;
-      dirty = false;
+      markSavedSnapshot(); // this is the clean server-matching baseline
       hideBanner();
     } catch (err) {
       // Almost always: opened as a local file, or the function isn't deployed.
       backendOk = false;
       league = normalizeLeague(window.WSS_PLACEHOLDER_LEAGUE);
+      markSavedSnapshot(); // baseline = placeholder (can't save offline anyway)
       showOfflineBanner();
     }
     renderAll();
@@ -1232,13 +1326,27 @@
 
   let saving = false;
 
-  async function saveChanges() {
+  // Save button handler: confirm first, then POST. This is the ONLY code path
+  // that writes to the server.
+  function saveChanges() {
+    if (!editMode || saving || !dirty) return;
+    confirmDialog(
+      "Save these changes? This updates the standings everyone sees.",
+      performSave,
+      { title: "Save changes", confirmLabel: "Yes", cancelLabel: "No" }
+    );
+  }
+
+  // The actual server write. Only reached via saveChanges() -> confirm Yes.
+  async function performSave() {
     if (!editMode || saving || !dirty) return;
     const pw = getPassword();
     if (!pw) {
-      // Lost the session password somehow — force re-unlock.
-      setSaveStatus("error", "Session expired — unlock again.");
-      exitEditMode();
+      // Lost the session password somehow — can't save; force re-unlock but
+      // keep the in-memory edits intact (do NOT discard silently).
+      setSaveStatus("error", "Session expired — unlock again to save.");
+      lockWithoutSaving();
+      renderAll();
       return;
     }
     saving = true;
@@ -1254,8 +1362,9 @@
         body: JSON.stringify(league),
       });
       if (res.status === 401) {
-        setSaveStatus("error", "Password rejected — unlock again.");
-        exitEditMode();
+        setSaveStatus("error", "Password rejected — unlock again to save.");
+        lockWithoutSaving();
+        renderAll();
         return;
       }
       if (!res.ok) {
@@ -1267,7 +1376,8 @@
         setSaveStatus("error", msg);
         return;
       }
-      dirty = false;
+      // Success: the server now matches our in-memory league. Mark it clean.
+      markSavedSnapshot();
       setSaveStatus("ok", "Saved ✓");
     } catch (err) {
       setSaveStatus("error", "Network error — not saved.");
@@ -1356,7 +1466,30 @@
     });
   }
 
+  // Lock button handler. With unsaved edits, confirm a discard first; on Yes
+  // the in-memory edits are reverted to the last server-matching state so
+  // nothing stale is left behind.
   function exitEditMode() {
+    if (!editMode) return;
+    if (dirty) {
+      confirmDialog(
+        "You have unsaved changes. Exit without saving? Your edits will be lost.",
+        () => {
+          revertToSnapshot(); // restore the last server-matching state
+          lockWithoutSaving();
+          renderAll();
+        },
+        { title: "Discard changes", confirmLabel: "Yes", cancelLabel: "No", confirmClass: "danger-solid" }
+      );
+      return;
+    }
+    lockWithoutSaving();
+    renderAll();
+  }
+
+  // Drop to read-only without prompting and without saving. Leaves the current
+  // in-memory league untouched (callers revert first if a discard is intended).
+  function lockWithoutSaving() {
     editMode = false;
     clearPassword(); // forget the password for this tab
     document.body.classList.remove("edit-mode");
@@ -1365,7 +1498,6 @@
     // If we were on an edit-only tab (Race Entry), fall back to a public one.
     const active = $(".tab.active");
     if (active && active.classList.contains("edit-only")) switchTab("drivers");
-    renderAll();
   }
 
   function updateModeUI() {
@@ -1413,6 +1545,12 @@
     $("#btn-add-driver").addEventListener("click", openAddDriver);
     $("#btn-add-race").addEventListener("click", openAddRace);
     $("#btn-add-penalty").addEventListener("click", () => openEditPenalty(null));
+
+    // Race Grid sort (view-only; not persisted)
+    $("#grid-sort").addEventListener("change", (e) => {
+      gridSort = e.target.value;
+      renderGrid();
+    });
 
     // modal backdrop click to close
     $("#modal-backdrop").addEventListener("click", (e) => {

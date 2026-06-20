@@ -29,9 +29,13 @@
       { id: "d-lindqvist", name: "E. Lindqvist", teamId: "t-nocturne", number: 27, locked: false },
     ],
     races: [
-      { id: "r1", label: "R1", kind: "race" },
-      { id: "r2s", label: "R2 Sprint", kind: "sprint" },
-      { id: "r3", label: "R3", kind: "race" },
+      // locked: per-race column lock (results frozen behind a confirm). Optional;
+      // absent/false means unlocked.
+      { id: "r1", label: "R1", kind: "race", locked: false },
+      { id: "r2", label: "R2", kind: "race", locked: false },
+      { id: "r2s", label: "R2 Sprint", kind: "sprint", locked: false },
+      { id: "r3", label: "R3", kind: "race", locked: true },
+      { id: "r4", label: "R4", kind: "race", locked: false },
     ],
     results: {
       // --- R1 ---
@@ -42,6 +46,14 @@
       "d-haas_r1": { position: 11, status: "finished", teamRace: false }, // independent
       "d-okafor_r1": { position: 3, status: "finished", teamRace: true },
       "d-lindqvist_r1": { position: 4, status: "dnf", teamRace: true }, // dnf -> 0
+
+      // --- R2 ---
+      "d-vega_r2": { position: 3, status: "finished", teamRace: true },
+      "d-ito_r2": { position: 1, status: "finished", teamRace: true },
+      "d-rourke_r2": { position: 2, status: "finished", teamRace: true },
+      "d-bauer_r2": { position: 6, status: "finished", teamRace: true },
+      "d-okafor_r2": { position: 4, status: "finished", teamRace: true },
+      "d-lindqvist_r2": { position: 7, status: "finished", teamRace: true },
 
       // --- R2 Sprint --- (flags flip vs R1 in places)
       "d-vega_r2s": { position: 4, status: "finished", teamRace: true },
@@ -58,6 +70,13 @@
       "d-rourke_r3": { position: 1, status: "dsq", teamRace: true }, // dsq -> 0
       "d-bauer_r3": { position: 5, status: "finished", teamRace: true },
       "d-okafor_r3": { position: 4, status: "finished", teamRace: true },
+
+      // --- R4 ---
+      "d-vega_r4": { position: 1, status: "finished", teamRace: true },
+      "d-ito_r4": { position: 4, status: "finished", teamRace: true },
+      "d-rourke_r4": { position: 2, status: "finished", teamRace: true },
+      "d-okafor_r4": { position: 3, status: "finished", teamRace: true },
+      "d-lindqvist_r4": { position: 6, status: "finished", teamRace: true },
     },
     penalties: [
       {
@@ -80,39 +99,19 @@
         seasonBan: false,
         note: "Causing a collision (R2 Sprint)",
       },
-    ],
-    // Manual stage sub-tables (NOT computed from results — mirrors the
-    // original spreadsheet). Each stage holds up to 3 manually typed
-    // name + points rows.
-    stages: [
       {
-        id: "s1",
-        label: "Stage I",
-        rows: [
-          { name: "L. Vega", points: 80 },
-          { name: "S. Rourke", points: 62 },
-          { name: "D. Okafor", points: 62 },
-        ],
-      },
-      {
-        id: "s2",
-        label: "Stage II",
-        rows: [
-          { name: "", points: "" },
-          { name: "", points: "" },
-          { name: "", points: "" },
-        ],
-      },
-      {
-        id: "s3",
-        label: "Stage III",
-        rows: [
-          { name: "", points: "" },
-          { name: "", points: "" },
-          { name: "", points: "" },
-        ],
+        id: "p3",
+        driverId: "d-haas",
+        points: 8,
+        qualiBan: false,
+        qualiBan2: true,
+        raceBan: true,
+        seasonBan: true,
+        note: "Repeated unsafe rejoins (R3)",
       },
     ],
+    // Stage standings are computed automatically from race results
+    // (see WSS.stageStandings) — no manual stage data.
   };
 
   root.WSS_PLACEHOLDER_LEAGUE = placeholderLeague;

@@ -209,6 +209,117 @@
       .sort((a, b) => b.points - a.points);
   }
 
+  // The season is always divided into exactly 3 stages.
+  const NUM_STAGES = 3;
+  const STAGE_LABELS = ["Stage I", "Stage II", "Stage III"];
+
+  /**
+   * Split N main races into NUM_STAGES consecutive group sizes, with any
+   * remainder distributed to the EARLIER stages first.
+   * e.g. 10 -> [4, 3, 3]; 12 -> [4, 4, 4]; 7 -> [3, 2, 2].
+   *
+   * @param {number} mainCount
+   * @returns {number[]} sizes per stage (length NUM_STAGES)
+   */
+  function stageGroupSizes(mainCount) {
+    const base = Math.floor(mainCount / NUM_STAGES);
+    let remainder = mainCount % NUM_STAGES;
+    const sizes = [];
+    for (let i = 0; i < NUM_STAGES; i++) {
+      sizes.push(base + (remainder > 0 ? 1 : 0));
+      if (remainder > 0) remainder -= 1;
+    }
+    return sizes;
+  }
+
+  /**
+   * Assign every race (main + sprint) to one of the 3 stages.
+   *
+   * Stages are carved up using MAIN races only (kind === "race"); the main
+   * races, in season order, are split into 3 consecutive groups (remainder to
+   * earlier stages). Each sprint is then attached to the stage of the nearest
+   * MAIN race that precedes it in season order; if no main race precedes it, it
+   * takes the stage of the nearest following main race.
+   *
+   * Returns null when there are fewer than NUM_STAGES main races (can't form 3
+   * meaningful stages).
+   *
+   * @param {Array<{id:string, kind?:string}>} races season-ordered
+   * @returns {null | Array<{index:number, label:string, raceIds:string[]}>}
+   */
+  function assignRacesToStages(races) {
+    const list = Array.isArray(races) ? races : [];
+    const mainRaces = list.filter((r) => r.kind !== "sprint");
+    if (mainRaces.length < NUM_STAGES) return null;
+
+    // stageOfMain: map each main race id -> stage index, via the group sizes.
+    const sizes = stageGroupSizes(mainRaces.length);
+    const stageOfMain = {};
+    let cursor = 0;
+    for (let s = 0; s < NUM_STAGES; s++) {
+      for (let k = 0; k < sizes[s]; k++) {
+        stageOfMain[mainRaces[cursor].id] = s;
+        cursor += 1;
+      }
+    }
+
+    const stages = STAGE_LABELS.map((label, index) => ({ index, label, raceIds: [] }));
+
+    // Walk the season in order, tracking the stage of the last main race seen.
+    let lastMainStage = null;
+    // Index of the first main race's stage, for sprints that precede all mains.
+    const firstMainStage = stageOfMain[mainRaces[0].id];
+
+    for (const race of list) {
+      let stageIdx;
+      if (race.kind !== "sprint") {
+        stageIdx = stageOfMain[race.id];
+        lastMainStage = stageIdx;
+      } else {
+        // Sprint: nearest preceding main race's stage, else nearest following.
+        stageIdx = lastMainStage != null ? lastMainStage : firstMainStage;
+      }
+      stages[stageIdx].raceIds.push(race.id);
+    }
+
+    return stages;
+  }
+
+  /**
+   * Per-stage driver standings: each stage's top scorers, computed from race
+   * points (main + sprint) of the races falling within that stage's span.
+   * Uses the same points table as everywhere else — no special stage scoring.
+   *
+   * Returns null when there aren't enough main races to form 3 stages.
+   *
+   * @param {Array} races
+   * @param {Array<{id:string}>} drivers
+   * @param {Object<string,object>} results
+   * @param {number} [topN] how many leaders to keep per stage (default 3)
+   * @returns {null | Array<{index, label, standings: Array<{driver, points}>}>}
+   */
+  function stageStandings(races, drivers, results, topN) {
+    const stages = assignRacesToStages(races);
+    if (!stages) return null;
+    const limit = topN == null ? 3 : topN;
+
+    return stages.map((stage) => {
+      const standings = (drivers || [])
+        .map((driver) => {
+          let points = 0;
+          for (const raceId of stage.raceIds) {
+            points += pointsForResult(getResult(results, driver.id, raceId));
+          }
+          return { driver, points };
+        })
+        // Only drivers who actually scored in this stage are worth showing.
+        .filter((entry) => entry.points > 0)
+        .sort((a, b) => b.points - a.points)
+        .slice(0, limit);
+      return { index: stage.index, label: stage.label, standings };
+    });
+  }
+
   return {
     POINTS_BY_POSITION,
     MAX_TEAM_DRIVERS_PER_RACE,
@@ -222,5 +333,9 @@
     isTeamRaceOverLimit,
     driverStandings,
     teamStandings,
+    NUM_STAGES,
+    stageGroupSizes,
+    assignRacesToStages,
+    stageStandings,
   };
 });
