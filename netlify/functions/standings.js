@@ -24,16 +24,24 @@ const JSON_HEADERS = {
   "cache-control": "no-store",
 };
 
-// Empty default league — same shape the frontend expects, no content.
-function emptyLeague() {
+// Empty default app data — the seasons wrapper the frontend expects, with one
+// empty starter season.
+function emptyAppData() {
   return {
-    title: "World Sim Series",
-    teams: [],
-    drivers: [],
-    races: [],
-    results: {},
-    penalties: [],
-    stages: [],
+    activeSeasonId: "season-1",
+    seasons: [
+      {
+        id: "season-1",
+        name: "Season 1",
+        title: "World Sim Series",
+        teams: [],
+        drivers: [],
+        races: [],
+        results: {},
+        penalties: [],
+        stages: [],
+      },
+    ],
   };
 }
 
@@ -67,25 +75,43 @@ function passwordOk(request) {
 }
 
 /**
- * Validate the posted body has the expected top-level league shape.
- * teams / drivers / races / penalties / stages must be arrays; results an
- * object. We do NOT deeply validate every row — just guard against garbage.
+ * Validate one season object has the expected shape. teams / drivers / races /
+ * penalties must be arrays; results an object. Not a deep row-by-row check —
+ * just guards against garbage.
  */
-function validateLeague(body) {
+function validateSeason(season, where) {
+  if (!season || typeof season !== "object") return `${where} must be an object.`;
+  for (const key of ["teams", "drivers", "races", "penalties"]) {
+    if (!Array.isArray(season[key])) return `${where}: missing/invalid "${key}" (expected array).`;
+  }
+  if (typeof season.results !== "object" || season.results === null || Array.isArray(season.results)) {
+    return `${where}: missing/invalid "results" (expected object).`;
+  }
+  if (season.stages !== undefined && !Array.isArray(season.stages)) {
+    return `${where}: invalid "stages" (expected array).`;
+  }
+  return null;
+}
+
+/**
+ * Validate the posted body. Accepts either the new appData shape
+ * ({ activeSeasonId, seasons: [...] }) or the legacy flat single-league shape
+ * (for back-compat); each season is validated.
+ */
+function validateAppData(body) {
   if (!body || typeof body !== "object") return "Body must be a JSON object.";
-  const arrays = ["teams", "drivers", "races", "penalties"];
-  for (const key of arrays) {
-    if (!Array.isArray(body[key])) return `Missing or invalid "${key}" (expected array).`;
+
+  if (Array.isArray(body.seasons)) {
+    if (body.seasons.length === 0) return 'Missing seasons (expected at least one).';
+    for (let i = 0; i < body.seasons.length; i++) {
+      const err = validateSeason(body.seasons[i], `seasons[${i}]`);
+      if (err) return err;
+    }
+    return null;
   }
-  if (typeof body.results !== "object" || body.results === null || Array.isArray(body.results)) {
-    return 'Missing or invalid "results" (expected object).';
-  }
-  // stages is part of the richer model; tolerate its absence for forward/back
-  // compat but reject a wrong type.
-  if (body.stages !== undefined && !Array.isArray(body.stages)) {
-    return 'Invalid "stages" (expected array).';
-  }
-  return null; // valid
+
+  // Legacy flat shape — validate it as a single season.
+  return validateSeason(body, "league");
 }
 
 export default async (request) => {
@@ -106,7 +132,9 @@ export default async (request) => {
   // ---- public read ---------------------------------------------------------
   if (method === "GET") {
     const saved = await store.get(BLOB_KEY, { type: "json" });
-    return json({ ok: true, league: saved || emptyLeague() });
+    // `league` key kept for response back-compat; it now carries appData (or a
+    // legacy flat league, which the client migrates on load).
+    return json({ ok: true, league: saved || emptyAppData() });
   }
 
   // ---- password-gated save -------------------------------------------------
@@ -126,13 +154,13 @@ export default async (request) => {
       return json({ ok: false, error: "Body is not valid JSON." }, 400);
     }
 
-    // The frontend may post either the bare league or { league }.
-    const league = body && body.league ? body.league : body;
+    // The frontend may post either the bare payload or { league: payload }.
+    const payload = body && body.league ? body.league : body;
 
-    const invalid = validateLeague(league);
+    const invalid = validateAppData(payload);
     if (invalid) return json({ ok: false, error: invalid }, 400);
 
-    await store.setJSON(BLOB_KEY, league);
+    await store.setJSON(BLOB_KEY, payload);
     return json({ ok: true });
   }
 

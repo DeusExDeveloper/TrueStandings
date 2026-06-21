@@ -41,16 +41,44 @@ test.beforeEach(() => {
   process.env.EDIT_PASSWORD = PW;
 });
 
-test("GET returns an empty default league when nothing saved", async () => {
+test("GET returns empty default appData (one empty season) when nothing saved", async () => {
   const res = await handler(req("GET"));
   assert.equal(res.status, 200);
   const body = await res.json();
   assert.equal(body.ok, true);
-  assert.deepEqual(body.league.teams, []);
-  assert.deepEqual(body.league.drivers, []);
-  assert.deepEqual(body.league.races, []);
-  assert.deepEqual(body.league.results, {});
-  assert.deepEqual(body.league.penalties, []);
+  assert.equal(body.league.activeSeasonId, "season-1");
+  assert.equal(body.league.seasons.length, 1);
+  const s = body.league.seasons[0];
+  assert.deepEqual(s.teams, []);
+  assert.deepEqual(s.drivers, []);
+  assert.deepEqual(s.results, {});
+  assert.deepEqual(s.penalties, []);
+});
+
+test("POST appData (seasons) saves and reads back; validates each season", async () => {
+  const appData = {
+    activeSeasonId: "season-2",
+    seasons: [
+      validLeague({ id: "season-1", name: "Season 1", title: "S1" }),
+      validLeague({ id: "season-2", name: "Season 2", title: "S2" }),
+    ],
+  };
+  const ok = await handler(req("POST", { headers: { "x-edit-password": PW }, body: appData }));
+  assert.equal(ok.status, 200);
+  const read = await (await handler(req("GET"))).json();
+  assert.equal(read.league.activeSeasonId, "season-2");
+  assert.equal(read.league.seasons[1].title, "S2");
+
+  // a season with a broken shape is rejected
+  const bad = { activeSeasonId: "s", seasons: [validLeague(), { teams: [] }] };
+  const res = await handler(req("POST", { headers: { "x-edit-password": PW }, body: bad }));
+  assert.equal(res.status, 400);
+
+  // empty seasons array rejected
+  const empty = await handler(
+    req("POST", { headers: { "x-edit-password": PW }, body: { activeSeasonId: "x", seasons: [] } })
+  );
+  assert.equal(empty.status, 400);
 });
 
 test("GET ?check=1 with correct password -> 200", async () => {

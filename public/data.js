@@ -114,5 +114,57 @@
     // (see WSS.stageStandings) — no manual stage data.
   };
 
-  root.WSS_PLACEHOLDER_LEAGUE = placeholderLeague;
+  // Season 1 = the rich placeholder above. Give it an id + name.
+  const season1 = Object.assign(
+    { id: "season-1", name: "Season 1" },
+    placeholderLeague
+  );
+
+  // A small, independent Season 2 with its OWN roster. Note some driver/team
+  // NAMES repeat across seasons (L. Vega, K. Ito / Apex Dynamics, Nocturne GP)
+  // — the All-Time tab combines those by name even though they're separate
+  // records here.
+  const season2 = {
+    id: "season-2",
+    name: "Season 2",
+    title: "World Sim Series — Season 2",
+    teams: [
+      { id: "s2-apex", name: "Apex Dynamics", color: "#e10600" },
+      { id: "s2-nocturne", name: "Nocturne GP", color: "#ffb000" },
+    ],
+    drivers: [
+      { id: "s2-vega", name: "L. Vega", teamId: "s2-apex", number: 7, locked: false },
+      { id: "s2-ito", name: "K. Ito", teamId: "s2-apex", number: 14, locked: false },
+      { id: "s2-okafor", name: "D. Okafor", teamId: "s2-nocturne", number: 9, locked: false },
+      { id: "s2-park", name: "J. Park", teamId: "s2-nocturne", number: 5, locked: false },
+    ],
+    races: [
+      { id: "s2r1", label: "R1", kind: "race", locked: false },
+      { id: "s2r2", label: "R2", kind: "race", locked: false },
+      { id: "s2r3", label: "R3", kind: "race", locked: false },
+    ],
+    results: {
+      "s2-vega_s2r1": { position: 2, status: "finished", teamRace: true },
+      "s2-ito_s2r1": { position: 1, status: "finished", teamRace: true, fastestLap: true },
+      "s2-okafor_s2r1": { position: 3, status: "finished", teamRace: true },
+      "s2-park_s2r1": { position: 4, status: "finished", teamRace: true },
+      "s2-vega_s2r2": { position: 1, status: "finished", teamRace: true },
+      "s2-ito_s2r2": { position: 3, status: "finished", teamRace: true },
+      "s2-okafor_s2r2": { position: 2, status: "finished", teamRace: true },
+      "s2-park_s2r2": { position: 5, status: "finished", teamRace: true },
+      "s2-vega_s2r3": { position: 1, status: "finished", teamRace: true },
+      "s2-okafor_s2r3": { position: 2, status: "finished", teamRace: true },
+      "s2-park_s2r3": { position: 3, status: "finished", teamRace: true },
+    },
+    penalties: [],
+  };
+
+  const placeholderAppData = {
+    activeSeasonId: "season-1",
+    seasons: [season1, season2],
+  };
+
+  // Exposed name kept for back-compat; it now carries the appData wrapper, which
+  // normalizeAppData() in app.js accepts directly.
+  root.WSS_PLACEHOLDER_LEAGUE = placeholderAppData;
 })(typeof self !== "undefined" ? self : this);

@@ -14,6 +14,21 @@
       </div>
       <span class="subtitle">World Sim Series · timing screen</span>
       <span class="spacer"></span>
+
+      <!-- Season control: switch (everyone) + add/rename (edit mode) -->
+      <div id="season-control" class="season-control">
+        <label class="season-pick">
+          <span class="season-pick-label">Season</span>
+          <select id="season-select"></select>
+        </label>
+        <button id="btn-rename-season" class="btn small edit-only-inline" title="Rename season">
+          Rename
+        </button>
+        <button id="btn-add-season" class="btn small edit-only-inline" title="Add a new season">
+          + Season
+        </button>
+      </div>
+
       <span id="save-status" class="save-status"></span>
       <span id="mode-badge" class="mode-badge">Read-only</span>
       <button id="btn-save" class="btn primary" style="display: none" disabled>
@@ -31,6 +46,7 @@
         <button class="tab" data-view="drivers">Drivers</button>
         <button class="tab" data-view="teams">Teams</button>
         <button class="tab" data-view="penalties">Penalties</button>
+        <button class="tab" data-view="alltime">All-Time</button>
       </nav>
 
       <!-- 1. Driver Standings (gains inline edit controls in edit mode) + Stage -->
@@ -166,6 +182,49 @@
           Every driver's full season, race by race. Cells tinted with the team
           colour scored for the team that round; untinted cells were independent.
           Unlock editing to click any cell and enter a result.
+        </p>
+      </section>
+
+      <!-- All-Time / career standings — read-only, combines every season -->
+      <section id="alltime-view" class="view">
+        <div class="standings-grid">
+          <div class="panel">
+            <h2>All-Time Driver Standings</h2>
+            <div class="board-wrap">
+              <table class="board" id="alltime-driver-board">
+                <thead>
+                  <tr>
+                    <th class="col-pos">Pos</th>
+                    <th>Driver</th>
+                    <th class="col-num">Seasons</th>
+                    <th class="col-pts">Points</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel">
+            <h2>All-Time Team Standings</h2>
+            <div class="board-wrap">
+              <table class="board" id="alltime-team-board">
+                <thead>
+                  <tr>
+                    <th class="col-pos">Pos</th>
+                    <th>Team</th>
+                    <th class="col-num">Seasons</th>
+                    <th class="col-pts">Points</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <p class="hint">
+          Combined across every season. Drivers and teams are matched by exact
+          name; each season's own scoring (sprint table, fastest-lap bonus) is
+          already baked into its totals.
         </p>
       </section>
     </main>

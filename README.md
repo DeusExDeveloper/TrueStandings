@@ -85,19 +85,32 @@ Fixed points table (hardcoded, not editable). Sprints use the **same** table:
 
 ## Data model
 
+Top level is `appData` — multiple self-contained seasons. Rosters are NOT
+shared across seasons (a driver in two seasons is two records, matched by name
+only for the All-Time view). The frontend keeps `league` pointing at the active
+season, so all scoring/rendering operates on one season unchanged.
+
 ```js
-league = {
+appData = {
+  activeSeasonId: string,         // which season is currently selected
+  seasons: [ season, ... ],
+}
+
+season = {
+  id, name,                                             // e.g. "Season 1"
   title: string,
   teams:   [{ id, name, color }],                       // color = hex row accent
   drivers: [{ id, name, teamId, number, locked }],      // locked = row frozen
-  races:   [{ id, label, kind: "race" | "sprint" }],
+  races:   [{ id, label, kind: "race" | "sprint", locked }],
   results: {                                            // keyed `${driverId}_${raceId}`
-    "driverId_raceId": { position, status, teamRace }   // status: finished|dnf|dsq
+    "driverId_raceId": { position, status, teamRace, fastestLap }  // status: finished|dnf|dsq
   },
   penalties: [{ id, driverId, points, qualiBan, qualiBan2, raceBan, seasonBan, note }],
-  stages:    [{ id, label, rows: [{ name, points }] }], // manual stage Top 3
 }
 ```
+
+On load, a legacy flat `league` (no `seasons` array) is migrated automatically
+into `{ activeSeasonId: "season-1", seasons: [{ id: "season-1", name: "Season 1", ...}] }`.
 
 ## Project structure
 

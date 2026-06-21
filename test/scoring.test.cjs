@@ -55,6 +55,95 @@ test("pointsForResult: null / missing position scores 0", () => {
   assert.equal(WSS.pointsForResult({ position: 0, status: "finished" }), 0);
 });
 
+// --- sprint points table -----------------------------------------------------
+
+test("pointsForPosition: main vs sprint tables", () => {
+  // main (default / "race")
+  assert.equal(WSS.pointsForPosition(1, "race"), 36);
+  assert.equal(WSS.pointsForPosition(12, "race"), 1);
+  assert.equal(WSS.pointsForPosition(13, "race"), 0);
+  // sprint
+  const sprint = { 1: 10, 2: 9, 3: 8, 4: 7, 5: 6, 6: 5, 7: 4, 8: 3, 9: 2, 10: 1 };
+  for (const [pos, pts] of Object.entries(sprint)) {
+    assert.equal(WSS.pointsForPosition(Number(pos), "sprint"), pts, `sprint P${pos}`);
+  }
+  assert.equal(WSS.pointsForPosition(11, "sprint"), 0); // P11+ scores 0 in sprint
+});
+
+test("pointsForResult uses the sprint table when kind is sprint", () => {
+  assert.equal(WSS.pointsForResult({ position: 1, status: "finished" }, "sprint"), 10);
+  assert.equal(WSS.pointsForResult({ position: 10, status: "finished" }, "sprint"), 1);
+  assert.equal(WSS.pointsForResult({ position: 11, status: "finished" }, "sprint"), 0);
+  // omitted kind defaults to the main table (back-compat)
+  assert.equal(WSS.pointsForResult({ position: 1, status: "finished" }), 36);
+});
+
+// --- fastest lap bonus -------------------------------------------------------
+
+test("fastestLapBonus: +2 main, +1 sprint", () => {
+  assert.equal(WSS.fastestLapBonus("race"), 2);
+  assert.equal(WSS.fastestLapBonus("sprint"), 1);
+});
+
+test("fastest lap adds bonus on top of position points", () => {
+  // main P1 + FL = 36 + 2 = 38
+  assert.equal(
+    WSS.pointsForResult({ position: 1, status: "finished", fastestLap: true }, "race"),
+    38
+  );
+  // sprint P1 + FL = 10 + 1 = 11
+  assert.equal(
+    WSS.pointsForResult({ position: 1, status: "finished", fastestLap: true }, "sprint"),
+    11
+  );
+});
+
+test("fastest lap bonus applies even outside the points table", () => {
+  // main P15 (0 position points) + FL = 0 + 2 = 2
+  assert.equal(
+    WSS.pointsForResult({ position: 15, status: "finished", fastestLap: true }, "race"),
+    2
+  );
+});
+
+test("fastest lap bonus still applies on a DNF", () => {
+  // DNF = 0 position points, but FL bonus stands: main 0 + 2 = 2
+  assert.equal(
+    WSS.pointsForResult({ position: 3, status: "dnf", fastestLap: true }, "race"),
+    2
+  );
+  // sprint DNF + FL = 0 + 1 = 1
+  assert.equal(
+    WSS.pointsForResult({ position: 3, status: "dnf", fastestLap: true }, "sprint"),
+    1
+  );
+});
+
+test("DSQ scores 0 total even with fastest lap flagged", () => {
+  assert.equal(
+    WSS.pointsForResult({ position: 1, status: "dsq", fastestLap: true }, "race"),
+    0
+  );
+  assert.equal(
+    WSS.pointsForResult({ position: 1, status: "dsq", fastestLap: true }, "sprint"),
+    0
+  );
+});
+
+test("driverPoints / teamPoints respect kind + fastest lap via races", () => {
+  const drivers = [{ id: "d1", teamId: "t1" }];
+  const races = [
+    { id: "rm", kind: "race" },
+    { id: "rs", kind: "sprint" },
+  ];
+  const results = {
+    d1_rm: { position: 1, status: "finished", teamRace: true, fastestLap: true }, // 36+2=38
+    d1_rs: { position: 1, status: "finished", teamRace: true, fastestLap: true }, // 10+1=11
+  };
+  assert.equal(WSS.driverPoints("d1", results, races), 49); // 38 + 11
+  assert.equal(WSS.teamPoints("t1", results, drivers, races), 49);
+});
+
 // --- fixture -----------------------------------------------------------------
 
 function fixture() {
@@ -261,7 +350,7 @@ test("stageStandings: per-stage totals include sprint points in the right stage"
   const results = {
     d1_r1: { position: 1, status: "finished", teamRace: true }, // S1: 36
     d1_r2: { position: 2, status: "finished", teamRace: true }, // S2: 26
-    d1_r2s: { position: 1, status: "finished", teamRace: false }, // S2: 36 (sprint)
+    d1_r2s: { position: 1, status: "finished", teamRace: false }, // S2: 10 (sprint P1)
     d1_r3: { position: 5, status: "finished", teamRace: true }, // S3: 15
     d2_r1: { position: 2, status: "finished", teamRace: true }, // S1: 26
     d2_r3: { position: 1, status: "finished", teamRace: true }, // S3: 36
@@ -272,10 +361,10 @@ test("stageStandings: per-stage totals include sprint points in the right stage"
     stages[0].standings.map((s) => `${s.driver.id}:${s.points}`),
     ["d1:36", "d2:26"]
   );
-  // Stage II: d1 = 26 (r2) + 36 (r2s sprint) = 62; d2 absent (0, filtered out)
+  // Stage II: d1 = 26 (r2 main) + 10 (r2s sprint P1) = 36; d2 absent (0)
   assert.deepEqual(
     stages[1].standings.map((s) => `${s.driver.id}:${s.points}`),
-    ["d1:62"]
+    ["d1:36"]
   );
   // Stage III: d2 36, d1 15
   assert.deepEqual(

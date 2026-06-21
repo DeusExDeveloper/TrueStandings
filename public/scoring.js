@@ -16,9 +16,10 @@
   "use strict";
 
   // ---------------------------------------------------------------------------
-  // Fixed points table. Hardcoded by design — NOT editable from the UI.
-  // Index 0 is unused so positions map 1:1 to array slots for readability.
-  // P13 and worse score 0. Sprints use this identical table.
+  // Fixed points tables. Hardcoded by design — NOT editable from the UI.
+  // Positions map 1:1 to keys. Positions outside a table score 0.
+  //   - Main races (kind "race"):  P1=36 … P12=1, P13+ = 0
+  //   - Sprint races (kind "sprint"): P1=10 … P10=1, P11+ = 0
   // ---------------------------------------------------------------------------
   const POINTS_BY_POSITION = {
     1: 36,
@@ -35,24 +36,78 @@
     12: 1,
   };
 
+  const SPRINT_POINTS_BY_POSITION = {
+    1: 10,
+    2: 9,
+    3: 8,
+    4: 7,
+    5: 6,
+    6: 5,
+    7: 4,
+    8: 3,
+    9: 2,
+    10: 1,
+  };
+
+  // Fastest-lap bonus, by race kind.
+  const FASTEST_LAP_BONUS = { race: 2, sprint: 1 };
+
   // Max number of drivers a single team may flag teamRace:true for one race.
   const MAX_TEAM_DRIVERS_PER_RACE = 2;
 
+  // Normalize an arbitrary kind value to "race" | "sprint" (default "race").
+  function normalizeKind(raceKind) {
+    return raceKind === "sprint" ? "sprint" : "race";
+  }
+
   /**
-   * Points scored for a single result row.
-   * DNF and DSQ always score 0, regardless of finishing position.
-   * A null/absent position scores 0 (no entry).
-   * P13+ scores 0.
+   * Position points for a finishing position under the given race kind.
+   * Picks the main or sprint table. Positions outside the table score 0.
    *
-   * @param {{position: number|null, status: string}|null|undefined} result
+   * @param {number|null} position
+   * @param {string} raceKind "race" | "sprint"
    * @returns {number}
    */
-  function pointsForResult(result) {
+  function pointsForPosition(position, raceKind) {
+    if (position == null || !Number.isFinite(position) || position < 1) return 0;
+    const table =
+      normalizeKind(raceKind) === "sprint" ? SPRINT_POINTS_BY_POSITION : POINTS_BY_POSITION;
+    return table[position] || 0;
+  }
+
+  /**
+   * Fastest-lap bonus for a race kind: +2 for a main race, +1 for a sprint.
+   * @param {string} raceKind
+   * @returns {number}
+   */
+  function fastestLapBonus(raceKind) {
+    return FASTEST_LAP_BONUS[normalizeKind(raceKind)];
+  }
+
+  /**
+   * Total points scored for a single result row, given its race kind.
+   *
+   *   total = (0 if DSQ, else pointsForPosition(position, kind))
+   *         + (0 if DSQ, else fastestLapBonus(kind) when fastestLap is set)
+   *
+   * - DSQ scores 0 total — including no fastest-lap bonus.
+   * - DNF scores 0 position points but STILL earns the fastest-lap bonus.
+   * - The fastest-lap bonus applies regardless of finishing position (a driver
+   *   outside the points table still gets it), except on a DSQ.
+   *
+   * @param {{position:number|null, status:string, fastestLap?:boolean}|null} result
+   * @param {string} [raceKind] "race" | "sprint" (defaults to main race)
+   * @returns {number}
+   */
+  function pointsForResult(result, raceKind) {
     if (!result) return 0;
-    if (result.status === "dnf" || result.status === "dsq") return 0;
-    const pos = result.position;
-    if (pos == null || !Number.isFinite(pos) || pos < 1) return 0;
-    return POINTS_BY_POSITION[pos] || 0;
+    if (result.status === "dsq") return 0; // DSQ wipes everything, incl. bonus
+
+    const kind = normalizeKind(raceKind);
+    // DNF scores 0 position points but can still hold the fastest lap.
+    const positionPoints = result.status === "dnf" ? 0 : pointsForPosition(result.position, kind);
+    const bonus = result.fastestLap ? fastestLapBonus(kind) : 0;
+    return positionPoints + bonus;
   }
 
   /**
@@ -61,6 +116,30 @@
    */
   function getResult(results, driverId, raceId) {
     return results ? results[`${driverId}_${raceId}`] : undefined;
+  }
+
+  /**
+   * Build a { raceId: kind } map from a races array so the aggregate scorers
+   * can pick the right points table per result. Unknown races default to main.
+   *
+   * @param {Array<{id:string, kind?:string}>} [races]
+   * @returns {Object<string,string>}
+   */
+  function raceKindMap(races) {
+    const map = {};
+    if (Array.isArray(races)) {
+      for (const r of races) map[r.id] = normalizeKind(r.kind);
+    }
+    return map;
+  }
+
+  // Extract the raceId from a result key `${driverId}_${raceId}`. driverIds and
+  // raceIds in our scheme don't contain "_" in their middle except... ids are
+  // generated as `${prefix}-${rand}` (no underscore), and seed ids like
+  // "d-vega" / "r2s" have no underscore, so splitting on the LAST "_" is safe.
+  function raceIdFromKey(key) {
+    const idx = key.lastIndexOf("_");
+    return idx === -1 ? "" : key.slice(idx + 1);
   }
 
   /**
@@ -73,17 +152,20 @@
    *
    * @param {string} driverId
    * @param {Object<string, object>} results
+   * @param {Array<{id:string, kind?:string}>} [races] needed to pick the sprint
+   *        vs main points table per result; omitting it treats all as main.
    * @returns {number}
    */
-  function driverPoints(driverId, results) {
+  function driverPoints(driverId, results, races) {
     if (!results) return 0;
+    const kinds = raceKindMap(races);
     let total = 0;
     const suffix = `${driverId}_`;
     for (const key in results) {
       // Keys are `${driverId}_${raceId}`. Match on the driver prefix.
       // driverId never contains "_" in our id scheme, so a prefix check is safe.
       if (key.indexOf(suffix) === 0) {
-        total += pointsForResult(results[key]);
+        total += pointsForResult(results[key], kinds[raceIdFromKey(key)]);
       }
     }
     return total;
@@ -100,15 +182,16 @@
    * @param {string} raceId
    * @param {Object<string, object>} results
    * @param {Array<{id:string, teamId:string}>} drivers
+   * @param {string} [raceKind] "race" | "sprint" for the correct points table
    * @returns {number}
    */
-  function teamPointsForRace(teamId, raceId, results, drivers) {
+  function teamPointsForRace(teamId, raceId, results, drivers, raceKind) {
     let total = 0;
     for (const driver of drivers) {
       if (driver.teamId !== teamId) continue;
       const result = getResult(results, driver.id, raceId);
       if (result && result.teamRace === true) {
-        total += pointsForResult(result);
+        total += pointsForResult(result, raceKind);
       }
     }
     return total;
@@ -127,7 +210,7 @@
   function teamPoints(teamId, results, drivers, races) {
     let total = 0;
     for (const race of races) {
-      total += teamPointsForRace(teamId, race.id, results, drivers);
+      total += teamPointsForRace(teamId, race.id, results, drivers, race.kind);
     }
     return total;
   }
@@ -189,9 +272,9 @@
    *
    * @returns {Array<{driver:object, points:number}>}
    */
-  function driverStandings(drivers, results) {
+  function driverStandings(drivers, results, races) {
     return drivers
-      .map((driver) => ({ driver, points: driverPoints(driver.id, results) }))
+      .map((driver) => ({ driver, points: driverPoints(driver.id, results, races) }))
       .sort((a, b) => b.points - a.points);
   }
 
@@ -302,13 +385,14 @@
     const stages = assignRacesToStages(races);
     if (!stages) return null;
     const limit = topN == null ? 3 : topN;
+    const kinds = raceKindMap(races);
 
     return stages.map((stage) => {
       const standings = (drivers || [])
         .map((driver) => {
           let points = 0;
           for (const raceId of stage.raceIds) {
-            points += pointsForResult(getResult(results, driver.id, raceId));
+            points += pointsForResult(getResult(results, driver.id, raceId), kinds[raceId]);
           }
           return { driver, points };
         })
@@ -322,7 +406,11 @@
 
   return {
     POINTS_BY_POSITION,
+    SPRINT_POINTS_BY_POSITION,
+    FASTEST_LAP_BONUS,
     MAX_TEAM_DRIVERS_PER_RACE,
+    pointsForPosition,
+    fastestLapBonus,
     pointsForResult,
     getResult,
     driverPoints,

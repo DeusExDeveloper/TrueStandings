@@ -1,14 +1,17 @@
 /*
  * WSS Standings — app shell.
  *
- * Loads the league from the Netlify Function (Blobs-backed) and saves it back
- * with a password-gated POST. The edit password is NEVER stored in this code or
- * checked here — it is held only in sessionStorage for the current tab while
- * unlocked, sent as a header, and verified server-side.
+ * State is `appData` = { activeSeasonId, seasons: [...] }. Each season is fully
+ * self-contained (its own teams/drivers/races/results/penalties). `league` is a
+ * live reference to the active season, so all rendering/scoring code operates on
+ * it unchanged. The whole appData is saved/loaded via the Netlify Function
+ * (Blobs-backed) with a password-gated POST. The edit password is NEVER stored
+ * in this code or checked here — it is held only in sessionStorage for the
+ * current tab while unlocked, sent as a header, and verified server-side.
  *
  * Depends on:
  *   - WSS                    (scoring.js) pure scoring functions
- *   - WSS_PLACEHOLDER_LEAGUE (data.js)    fallback seed for local file preview
+ *   - WSS_PLACEHOLDER_LEAGUE (data.js)    fallback seed (now an appData wrapper)
  */
 (function () {
   "use strict";
@@ -18,31 +21,57 @@
   const API = "/.netlify/functions/standings";
   const PW_KEY = "wss-edit-pw"; // sessionStorage key (this tab only)
 
-  let league = emptyLeague();
-  // Deep clone of the last state known to match the server (set on load and
-  // after a successful save). Used to revert in-memory edits on "discard".
-  let savedSnapshot = emptyLeague();
+  // Top-level state: multiple self-contained seasons + which one is active.
+  let appData = emptyAppData();
+  // `league` is a LIVE reference to the active season object inside appData.
+  // All existing render/scoring code reads/writes it unchanged — it just points
+  // at the active season's teams/drivers/races/results/penalties.
+  let league = appData.seasons[0];
+  // Deep clone of the whole appData last known to match the server (set on load
+  // and after a successful save). Used to revert in-memory edits on "discard".
+  let savedSnapshot = structuredClone(appData);
   let editMode = false;
   // View-only Race Grid row ordering (not persisted): "team" | "points" | "name".
   let gridSort = "team";
   let dirty = false; // unsaved in-memory edits since last load/save
   let backendOk = false; // did the initial fetch succeed?
 
-  // Record the current league as the clean, server-matching baseline.
+  // Record the whole appData as the clean, server-matching baseline.
   function markSavedSnapshot() {
-    savedSnapshot = structuredClone(league);
+    savedSnapshot = structuredClone(appData);
     dirty = false;
     updateSaveButton();
   }
 
   // Revert all in-memory edits back to the last server-matching state.
   function revertToSnapshot() {
-    league = structuredClone(savedSnapshot);
+    appData = structuredClone(savedSnapshot);
+    pointLeagueAtActiveSeason();
     dirty = false;
   }
 
-  function emptyLeague() {
+  // Re-point `league` at the active season (call after any change that
+  // replaces appData or switches the active season).
+  function pointLeagueAtActiveSeason() {
+    let season = appData.seasons.find((s) => s.id === appData.activeSeasonId);
+    if (!season) {
+      season = appData.seasons[0];
+      if (season) appData.activeSeasonId = season.id;
+    }
+    if (!season) {
+      // No seasons at all — create a default empty one.
+      season = emptySeason("season-1", "Season 1");
+      appData.seasons.push(season);
+      appData.activeSeasonId = season.id;
+    }
+    league = season;
+  }
+
+  // A fresh, empty season (no teams/drivers/races/results/penalties).
+  function emptySeason(id, name) {
     return {
+      id,
+      name,
       title: "World Sim Series",
       teams: [],
       drivers: [],
@@ -51,6 +80,11 @@
       penalties: [],
       stages: [],
     };
+  }
+
+  function emptyAppData() {
+    const season = emptySeason("season-1", "Season 1");
+    return { activeSeasonId: season.id, seasons: [season] };
   }
 
   // Password is kept only in sessionStorage (per-tab), never in localStorage,
@@ -188,32 +222,7 @@
     headRow.appendChild(el("th", { class: "mg-num sticky-l", text: "No." }));
 
     for (const race of league.races) {
-      const kindBadge = el("span", {
-        class: `kind ${race.kind === "sprint" ? "sprint" : "race"}`,
-        text: race.kind === "sprint" ? "SPR" : "RACE",
-      });
-      const th = el("th", {
-        class: `mg-race ${race.locked ? "race-locked" : ""}`,
-      }, [document.createTextNode(race.label + " "), kindBadge]);
-
-      // Per-race column lock toggle — edit mode only. Closed padlock = locked.
-      if (editMode) {
-        th.appendChild(
-          el("button", {
-            class: `race-lock-toggle ${race.locked ? "on" : ""}`,
-            text: race.locked ? "🔒" : "🔓",
-            title: race.locked ? `${race.label} is locked — click to unlock` : `Lock ${race.label}`,
-            onclick: (e) => {
-              e.stopPropagation();
-              toggleRaceLock(race.id);
-            },
-          })
-        );
-      } else if (race.locked) {
-        // Read-only: still show the closed padlock as a status indicator.
-        th.appendChild(el("span", { class: "race-lock-indicator", text: "🔒", title: "Locked" }));
-      }
-      headRow.appendChild(th);
+      headRow.appendChild(renderRaceHeader(race));
     }
     headRow.appendChild(el("th", { class: "mg-total sticky-r", text: "TOTAL" }));
     thead.appendChild(headRow);
@@ -240,8 +249,8 @@
           .filter((d) => d.teamId === team.id)
           .sort(
             (a, b) =>
-              WSS.driverPoints(b.id, league.results) -
-              WSS.driverPoints(a.id, league.results)
+              WSS.driverPoints(b.id, league.results, league.races) -
+              WSS.driverPoints(a.id, league.results, league.races)
           );
         if (teamDrivers.length === 0) continue;
 
@@ -263,8 +272,8 @@
       if (gridSort === "points") {
         flat.sort(
           (a, b) =>
-            WSS.driverPoints(b.id, league.results) -
-              WSS.driverPoints(a.id, league.results) ||
+            WSS.driverPoints(b.id, league.results, league.races) -
+              WSS.driverPoints(a.id, league.results, league.races) ||
             a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
         );
       } else {
@@ -282,6 +291,76 @@
     wrap.appendChild(table);
 
     renderWarnings();
+  }
+
+  // One race column header. In edit mode the label is click-to-rename and the
+  // RACE/SPR badge toggles the race kind; the per-race lock toggle is kept.
+  // Read-only viewers see static label + badge (+ lock indicator if locked).
+  function renderRaceHeader(race) {
+    const th = el("th", { class: `mg-race ${race.locked ? "race-locked" : ""}` });
+
+    // --- label (rename) ---
+    if (editMode) {
+      const labelInput = el("input", {
+        type: "text",
+        class: "race-label-input",
+        value: race.label,
+        title: "Rename race",
+        onclick: (e) => e.stopPropagation(),
+        onkeydown: (e) => {
+          if (e.key === "Enter") e.target.blur();
+        },
+        onchange: (e) => {
+          const v = e.target.value.trim();
+          if (v) {
+            race.label = v;
+            markDirty();
+            renderGrid(); // refresh titles/tooltips that embed the label
+          } else {
+            e.target.value = race.label; // reject empty
+          }
+        },
+      });
+      th.appendChild(labelInput);
+    } else {
+      th.appendChild(el("span", { class: "race-label", text: race.label }));
+    }
+
+    // --- kind badge (RACE / SPR) ---
+    const isSprint = race.kind === "sprint";
+    const badge = el("span", {
+      class: `kind ${isSprint ? "sprint" : "race"} ${editMode ? "editable-badge" : ""}`,
+      text: isSprint ? "SPR" : "RACE",
+      title: editMode ? "Click to toggle Race / Sprint" : "",
+    });
+    if (editMode) {
+      badge.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleRaceKind(race.id);
+      });
+    }
+    th.appendChild(badge);
+
+    // --- per-race lock (unchanged from before) ---
+    if (editMode) {
+      th.appendChild(
+        el("button", {
+          class: `race-lock-toggle ${race.locked ? "on" : ""}`,
+          text: race.locked ? "🔒" : "🔓",
+          title: race.locked
+            ? `${race.label} is locked — click to unlock`
+            : `Lock ${race.label}`,
+          onclick: (e) => {
+            e.stopPropagation();
+            toggleRaceLock(race.id);
+          },
+        })
+      );
+    } else if (race.locked) {
+      th.appendChild(el("span", { class: "race-lock-indicator", text: "🔒", title: "Locked" }));
+    }
+
+    return th;
   }
 
   // One driver row across the whole season. The team name is repeated on every
@@ -344,7 +423,7 @@
 
     // TOTAL cell (sticky right) — reuses driverPoints(), the same function the
     // Driver Standings board uses. Opaque bg so race cells don't bleed through.
-    const total = WSS.driverPoints(driver.id, league.results);
+    const total = WSS.driverPoints(driver.id, league.results, league.races);
     tr.appendChild(
       el("td", {
         class: "mg-total sticky-r num",
@@ -401,11 +480,11 @@
         el("span", { class: `pos-tag ${result.status}`, text: result.status.toUpperCase() })
       );
     } else {
-      const pts = WSS.pointsForResult(result);
+      // Show just the position code (e.g. "P3"). Points still drive all totals
+      // and standings — they're simply no longer printed inline in every cell.
       td.appendChild(
         el("span", { class: "pos-tag", text: `P${result.position}` })
       );
-      td.appendChild(el("span", { class: "cell-pts", text: `(${pts}pts)` }));
     }
 
     // Clickable only when editable (unlocked app + unlocked row).
@@ -526,7 +605,10 @@
     const preview = el("div", { class: "seg-caption" });
     function updatePreview() {
       const posVal = posInput.value === "" ? null : parseInt(posInput.value, 10);
-      const pts = WSS.pointsForResult({ position: posVal, status: state.status });
+      const pts = WSS.pointsForResult(
+        { position: posVal, status: state.status, fastestLap: state.fastestLap },
+        race.kind
+      );
       preview.textContent = `Scores: ${pts} pts`;
     }
     posInput.addEventListener("input", updatePreview);
@@ -540,6 +622,7 @@
       $$("button", flSeg).forEach((b) =>
         b.classList.toggle("active", b.getAttribute("data-val") === (val ? "on" : "off"))
       );
+      updatePreview(); // bonus changes the scored total
     }
     flSeg.appendChild(
       el("button", {
@@ -708,6 +791,17 @@
     renderAll();
   }
 
+  // Toggle a race between "race" and "sprint" (edit mode only). This changes
+  // which points table applies to every result in that column, so re-render
+  // everything (grid TOTALs + standings) to reflect updated point values.
+  function toggleRaceKind(raceId) {
+    const race = league.races.find((r) => r.id === raceId);
+    if (!race) return;
+    race.kind = race.kind === "sprint" ? "race" : "sprint";
+    markDirty();
+    renderAll();
+  }
+
   // Race deletion is intentionally not surfaced in the grid header anymore
   // (too easy to misclick). Kept here for a future management surface.
   function removeRace(raceId) {
@@ -787,7 +881,7 @@
     const cols = editMode ? 7 : 4;
 
     // Sort by points desc, ties broken alphabetically by name.
-    const standings = WSS.driverStandings(league.drivers, league.results).sort(
+    const standings = WSS.driverStandings(league.drivers, league.results, league.races).sort(
       (a, b) =>
         b.points - a.points ||
         a.driver.name.localeCompare(b.driver.name, undefined, { sensitivity: "base" })
@@ -1013,7 +1107,7 @@
         .filter((x) => x.r && x.r.teamRace === true)
         .map((x) => ({
           name: x.d.name,
-          pts: WSS.pointsForResult(x.r),
+          pts: WSS.pointsForResult(x.r, race.kind),
         }));
 
       const raceTotal = scorers.reduce((s, x) => s + x.pts, 0);
@@ -1293,14 +1387,16 @@
       const res = await fetch(API, { headers: { accept: "application/json" } });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      league = normalizeLeague(data.league);
+      appData = normalizeAppData(data.league);
+      pointLeagueAtActiveSeason();
       backendOk = true;
       markSavedSnapshot(); // this is the clean server-matching baseline
       hideBanner();
     } catch (err) {
       // Almost always: opened as a local file, or the function isn't deployed.
       backendOk = false;
-      league = normalizeLeague(window.WSS_PLACEHOLDER_LEAGUE);
+      appData = normalizeAppData(window.WSS_PLACEHOLDER_LEAGUE);
+      pointLeagueAtActiveSeason();
       markSavedSnapshot(); // baseline = placeholder (can't save offline anyway)
       showOfflineBanner();
     }
@@ -1308,13 +1404,15 @@
     updateSaveButton();
   }
 
-  // Ensure every expected field exists so the UI never trips on a partial
-  // payload (e.g. an older save without `stages`).
-  function normalizeLeague(raw) {
-    const base = emptyLeague();
+  // Normalize one season object, filling in any missing fields.
+  function normalizeSeason(raw, fallbackId, fallbackName) {
+    const base = emptySeason(fallbackId, fallbackName);
     if (!raw || typeof raw !== "object") return base;
     return {
+      id: typeof raw.id === "string" && raw.id ? raw.id : fallbackId,
+      name: typeof raw.name === "string" && raw.name ? raw.name : fallbackName,
       title: typeof raw.title === "string" ? raw.title : base.title,
+      bestOf: raw.bestOf, // preserved if present, else undefined
       teams: Array.isArray(raw.teams) ? raw.teams : [],
       drivers: Array.isArray(raw.drivers) ? raw.drivers : [],
       races: Array.isArray(raw.races) ? raw.races : [],
@@ -1322,6 +1420,30 @@
       penalties: Array.isArray(raw.penalties) ? raw.penalties : [],
       stages: Array.isArray(raw.stages) ? raw.stages : [],
     };
+  }
+
+  // Normalize the top-level appData. Handles three cases:
+  //  - already the new shape ({ seasons: [...] })  -> normalize each season
+  //  - the OLD flat shape ({ teams, drivers, ... }) -> migrate into one season
+  //  - null/garbage                                 -> a fresh empty appData
+  function normalizeAppData(raw) {
+    if (raw && typeof raw === "object" && Array.isArray(raw.seasons)) {
+      const seasons = raw.seasons.map((s, i) =>
+        normalizeSeason(s, `season-${i + 1}`, `Season ${i + 1}`)
+      );
+      if (seasons.length === 0) return emptyAppData();
+      const activeSeasonId =
+        seasons.find((s) => s.id === raw.activeSeasonId) ? raw.activeSeasonId : seasons[0].id;
+      return { activeSeasonId, seasons };
+    }
+    // One-time migration of the old flat single-league shape.
+    if (raw && typeof raw === "object" && (raw.teams || raw.drivers || raw.races)) {
+      const season = normalizeSeason(raw, "season-1", "Season 1");
+      season.id = "season-1";
+      season.name = raw.name || "Season 1";
+      return { activeSeasonId: "season-1", seasons: [season] };
+    }
+    return emptyAppData();
   }
 
   let saving = false;
@@ -1359,7 +1481,7 @@
           "content-type": "application/json",
           "x-edit-password": pw,
         },
-        body: JSON.stringify(league),
+        body: JSON.stringify(appData),
       });
       if (res.status === 401) {
         setSaveStatus("error", "Password rejected — unlock again to save.");
@@ -1516,15 +1638,169 @@
     $$(".view").forEach((v) => v.classList.toggle("active", v.id === name + "-view"));
   }
 
+  // --- seasons ---------------------------------------------------------------
+
+  // Populate the season dropdown to reflect appData. The select shows the
+  // active season; switching it is a view-only change (no edit/save required).
+  function renderSeasonControl() {
+    const select = $("#season-select");
+    select.innerHTML = "";
+    for (const season of appData.seasons) {
+      select.appendChild(
+        el("option", {
+          value: season.id,
+          text: season.name,
+          ...(season.id === appData.activeSeasonId ? { selected: "selected" } : {}),
+        })
+      );
+    }
+  }
+
+  function switchSeason(seasonId) {
+    if (!appData.seasons.some((s) => s.id === seasonId)) return;
+    appData.activeSeasonId = seasonId;
+    pointLeagueAtActiveSeason();
+    renderAll(); // re-render every tab with the newly active season's data
+  }
+
+  function addSeason() {
+    const nameInput = el("input", {
+      type: "text",
+      placeholder: "Season name",
+      value: `Season ${appData.seasons.length + 1}`,
+    });
+    const body = el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Season name" }), nameInput]),
+      el("div", { class: "hint", text: "Starts empty — no teams, drivers, or races." }),
+    ]);
+    openModal("Add season", body, () => {
+      const name = nameInput.value.trim();
+      if (!name) return setModalError("Name is required.");
+      const season = emptySeason(uid("season"), name);
+      appData.seasons.push(season);
+      appData.activeSeasonId = season.id; // switch to the new season
+      pointLeagueAtActiveSeason();
+      markDirty();
+      closeModal();
+      renderAll();
+    });
+  }
+
+  function renameSeason() {
+    const nameInput = el("input", { type: "text", value: league.name });
+    const body = el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Season name" }), nameInput]),
+    ]);
+    openModal("Rename season", body, () => {
+      const name = nameInput.value.trim();
+      if (!name) return setModalError("Name is required.");
+      league.name = name;
+      markDirty();
+      closeModal();
+      renderAll();
+    });
+  }
+
+  // --- All-Time / career standings (read-only, combined across seasons) ------
+
+  // Sum a numeric stat per key (driver name or team name) across all seasons,
+  // tracking how many distinct seasons each key appeared in.
+  function allTimeDriverStandings() {
+    const byName = new Map(); // name -> { name, points, seasonIds:Set }
+    for (const season of appData.seasons) {
+      for (const driver of season.drivers) {
+        const pts = WSS.driverPoints(driver.id, season.results, season.races);
+        const entry =
+          byName.get(driver.name) || { name: driver.name, points: 0, seasonIds: new Set() };
+        entry.points += pts;
+        entry.seasonIds.add(season.id);
+        byName.set(driver.name, entry);
+      }
+    }
+    return [...byName.values()]
+      .map((e) => ({ name: e.name, points: e.points, seasons: e.seasonIds.size }))
+      .sort(
+        (a, b) =>
+          b.points - a.points ||
+          a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+      );
+  }
+
+  function allTimeTeamStandings() {
+    const byName = new Map();
+    for (const season of appData.seasons) {
+      for (const team of season.teams) {
+        const pts = WSS.teamPoints(team.id, season.results, season.drivers, season.races);
+        const entry =
+          byName.get(team.name) || { name: team.name, points: 0, seasonIds: new Set() };
+        entry.points += pts;
+        entry.seasonIds.add(season.id);
+        byName.set(team.name, entry);
+      }
+    }
+    return [...byName.values()]
+      .map((e) => ({ name: e.name, points: e.points, seasons: e.seasonIds.size }))
+      .sort(
+        (a, b) =>
+          b.points - a.points ||
+          a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+      );
+  }
+
+  function renderAllTime() {
+    const driverBody = $("#alltime-driver-board tbody");
+    const teamBody = $("#alltime-team-board tbody");
+    driverBody.innerHTML = "";
+    teamBody.innerHTML = "";
+
+    const drivers = allTimeDriverStandings();
+    if (drivers.length === 0) {
+      driverBody.appendChild(
+        el("tr", {}, [el("td", { colspan: 4, class: "empty-cell", text: "No drivers yet." })])
+      );
+    } else {
+      drivers.forEach((entry, i) => {
+        driverBody.appendChild(
+          el("tr", { class: podiumClass(i) }, [
+            el("td", { class: "col-pos num", text: String(i + 1) }),
+            el("td", { class: "name-cell", text: entry.name }),
+            el("td", { class: "col-num num", text: String(entry.seasons) }),
+            el("td", { class: "col-pts num", text: String(entry.points) }),
+          ])
+        );
+      });
+    }
+
+    const teams = allTimeTeamStandings();
+    if (teams.length === 0) {
+      teamBody.appendChild(
+        el("tr", {}, [el("td", { colspan: 4, class: "empty-cell", text: "No teams yet." })])
+      );
+    } else {
+      teams.forEach((entry, i) => {
+        teamBody.appendChild(
+          el("tr", { class: podiumClass(i) }, [
+            el("td", { class: "col-pos num", text: String(i + 1) }),
+            el("td", { class: "name-cell", text: entry.name }),
+            el("td", { class: "col-num num", text: String(entry.seasons) }),
+            el("td", { class: "col-pts num", text: String(entry.points) }),
+          ])
+        );
+      });
+    }
+  }
+
   // --- render all ------------------------------------------------------------
 
   function renderAll() {
     $("#league-title").textContent = league.title;
+    renderSeasonControl();
     renderGrid();
     renderDriverBoard();
     renderTeamBoard();
     renderStageCards();
     renderPenaltyBoard();
+    renderAllTime();
   }
 
   // --- init ------------------------------------------------------------------
@@ -1551,6 +1827,11 @@
       gridSort = e.target.value;
       renderGrid();
     });
+
+    // Season control: switch (everyone), add/rename (edit mode only)
+    $("#season-select").addEventListener("change", (e) => switchSeason(e.target.value));
+    $("#btn-add-season").addEventListener("click", addSeason);
+    $("#btn-rename-season").addEventListener("click", renameSeason);
 
     // modal backdrop click to close
     $("#modal-backdrop").addEventListener("click", (e) => {
