@@ -19,7 +19,7 @@
   --accent-dim: #7a0f0c;
   --ok: #29c46a;
   --warn: #ffb000;
-  --fastlap: #bd23f0; /* neon violet — fastest lap marker (not a team color) */
+  --fastlap: #9929be; /* neon violet — fastest lap marker (not a team color) */
 
   --gold: #ffd54a;
   --silver: #c9d1da;
@@ -408,6 +408,13 @@ table.master-grid {
   padding: 1px 3px;
   font-size: 11px;
   font-family: var(--mono);
+}
+/* locked race label reads as clickable (confirm-then-rename) */
+.master-grid thead th.mg-race .race-label-locked {
+  cursor: pointer;
+}
+.master-grid thead th.mg-race .race-label-locked:hover {
+  color: var(--accent);
 }
 
 /* --- per-race column lock (header) --- */

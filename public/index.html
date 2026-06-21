@@ -55,23 +55,25 @@
         </div>
 
         <div class="drivers-layout">
-          <div class="panel">
-            <h2>Driver Standings</h2>
-            <div class="board-wrap">
-              <table class="board" id="driver-board">
-                <thead>
-                  <tr>
-                    <th class="col-pos">Pos</th>
-                    <th>Driver</th>
-                    <th>Team</th>
-                    <th class="col-pts">Points</th>
-                    <th class="col-num edit-only-cell">No.</th>
-                    <th class="col-lock edit-only-cell">Locked</th>
-                    <th class="col-act edit-only-cell"></th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
+          <div class="board-col">
+            <div class="panel">
+              <h2>Driver Standings</h2>
+              <div class="board-wrap">
+                <table class="board" id="driver-board">
+                  <thead>
+                    <tr>
+                      <th class="col-pos">Pos</th>
+                      <th>Driver</th>
+                      <th>Team</th>
+                      <th class="col-pts">Points</th>
+                      <th class="col-num edit-only-cell">No.</th>
+                      <th class="col-lock edit-only-cell">Locked</th>
+                      <th class="col-act edit-only-cell"></th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
             </div>
             <p class="hint">
               Sorted by total points (ties broken alphabetically). Every race a
@@ -112,11 +114,11 @@
               <tbody></tbody>
             </table>
           </div>
-          <p class="hint">
-            Only results flagged Team for a race count toward that team. Click a
-            row to expand the per-race team-driver breakdown.
-          </p>
         </div>
+        <p class="hint">
+          Only results flagged Team for a race count toward that team. Click a
+          row to expand the per-race team-driver breakdown.
+        </p>
       </section>
 
       <!-- 3. Penalties board (manual entry, edit mode only) -->

@@ -293,15 +293,31 @@
     renderWarnings();
   }
 
+  // Run a race-editing action, gated by the same "this race is locked, edit
+  // anyway?" confirm used for result cells when the race column is locked.
+  // Unlocked races run the action immediately.
+  function withRaceLockConfirm(race, action) {
+    if (race.locked) {
+      confirmDialog(`${race.label} is locked. Edit this race anyway?`, action, {
+        title: "Locked race",
+        confirmLabel: "Edit anyway",
+        cancelLabel: "Cancel",
+      });
+    } else {
+      action();
+    }
+  }
+
   // One race column header. In edit mode the label is click-to-rename and the
   // RACE/SPR badge toggles the race kind; the per-race lock toggle is kept.
-  // Read-only viewers see static label + badge (+ lock indicator if locked).
+  // A locked race confirms before allowing rename or type change (same modal as
+  // its result cells). Read-only viewers see static label + badge (+ lock icon).
   function renderRaceHeader(race) {
     const th = el("th", { class: `mg-race ${race.locked ? "race-locked" : ""}` });
 
     // --- label (rename) ---
-    if (editMode) {
-      const labelInput = el("input", {
+    function makeLabelInput(autofocus) {
+      return el("input", {
         type: "text",
         class: "race-label-input",
         value: race.label,
@@ -320,10 +336,31 @@
             e.target.value = race.label; // reject empty
           }
         },
+        ...(autofocus ? { autofocus: "autofocus" } : {}),
       });
-      th.appendChild(labelInput);
-    } else {
+    }
+
+    if (!editMode) {
       th.appendChild(el("span", { class: "race-label", text: race.label }));
+    } else if (race.locked) {
+      // Locked: clicking the label confirms first, then swaps in the input.
+      const labelBtn = el("span", {
+        class: "race-label race-label-locked",
+        text: race.label,
+        title: `${race.label} is locked — click to rename`,
+        onclick: (e) => {
+          e.stopPropagation();
+          withRaceLockConfirm(race, () => {
+            const input = makeLabelInput(true);
+            th.replaceChild(input, labelBtn);
+            input.focus();
+            input.select();
+          });
+        },
+      });
+      th.appendChild(labelBtn);
+    } else {
+      th.appendChild(makeLabelInput(false));
     }
 
     // --- kind badge (RACE / SPR) ---
@@ -336,7 +373,9 @@
     if (editMode) {
       badge.addEventListener("click", (e) => {
         e.stopPropagation();
-        toggleRaceKind(race.id);
+        // Locked races confirm before changing type (it silently rescores the
+        // whole column), matching the result-cell / rename gating.
+        withRaceLockConfirm(race, () => toggleRaceKind(race.id));
       });
     }
     th.appendChild(badge);
