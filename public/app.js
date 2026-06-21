@@ -1390,8 +1390,10 @@
     );
     actions.appendChild(
       el("button", {
+        id: "modal-confirm-btn",
         class: `btn ${opts.confirmClass || "primary"}`,
         text: opts.confirmLabel || "Save",
+        ...(opts.confirmDisabled ? { disabled: "disabled" } : {}),
         onclick: () => onConfirm && onConfirm(),
       })
     );
@@ -1758,6 +1760,18 @@
           onclick: addSeason,
         })
       );
+      // Delete is the most destructive action — disabled when it's the only
+      // season left (can't drop to zero seasons).
+      const onlyOne = appData.seasons.length <= 1;
+      control.appendChild(
+        el("button", {
+          class: "btn small danger season-mgmt-btn",
+          title: onlyOne ? "Can't delete the only season" : "Delete this season",
+          text: "Delete Season",
+          ...(onlyOne ? { disabled: "disabled" } : {}),
+          onclick: deleteSeason,
+        })
+      );
     }
   }
 
@@ -1806,6 +1820,63 @@
       closeModal();
       renderAll();
     });
+  }
+
+  // Delete the active season — the most destructive action. Requires typing the
+  // word DELETE exactly (enabling the confirm button) before it can run. Edit-
+  // mode-only; refuses to delete the last remaining season. Local edit until
+  // Save (same Save/Discard rules as everything else).
+  function deleteSeason() {
+    if (!editMode) return; // edit-mode-only; guard against any stray invocation
+    if (appData.seasons.length <= 1) return; // never drop to zero seasons
+
+    const target = league; // the active season
+    const REQUIRED = "DELETE";
+
+    const typeInput = el("input", {
+      type: "text",
+      placeholder: `Type ${REQUIRED} to confirm`,
+      autocomplete: "off",
+      oninput: (e) => {
+        const btn = $("#modal-confirm-btn");
+        if (btn) btn.disabled = e.target.value !== REQUIRED; // exact match only
+      },
+    });
+
+    const body = el("div", {}, [
+      el("p", {
+        class: "confirm-text",
+        text:
+          `Delete ${target.name}? This permanently removes its teams, drivers, ` +
+          `races, results, and penalties. This cannot be undone.`,
+      }),
+      el("div", { class: "field" }, [
+        el("label", { text: `Type ${REQUIRED} to confirm` }),
+        typeInput,
+      ]),
+    ]);
+
+    openModal(
+      "Delete season",
+      body,
+      () => {
+        // Guard again at click time: only proceed on an exact match.
+        if (typeInput.value !== REQUIRED) return;
+        if (appData.seasons.length <= 1) return; // belt and suspenders
+
+        appData.seasons = appData.seasons.filter((s) => s.id !== target.id);
+        // If the active season was the one deleted, re-point at a survivor.
+        if (appData.activeSeasonId === target.id) {
+          appData.activeSeasonId = appData.seasons[0].id;
+        }
+        pointLeagueAtActiveSeason();
+        markDirty();
+        closeModal();
+        renderAll(); // every tab now reflects the newly-active season
+      },
+      { confirmLabel: "Delete season", confirmClass: "danger-solid", confirmDisabled: true }
+    );
+    setTimeout(() => typeInput.focus(), 50);
   }
 
   // --- All-Time / career standings (read-only, combined across seasons) ------

@@ -1370,10 +1370,15 @@ body.edit-mode .edit-only-cell {
   color: var(--accent);
 }
 
-button.btn.primary:disabled {
+button.btn:disabled,
+button.btn.primary:disabled,
+button.btn.danger-solid:disabled {
   opacity: 0.4;
   cursor: not-allowed;
   filter: none;
+}
+button.btn:disabled:hover {
+  border-color: var(--border-strong); /* no hover accent when disabled */
 }
 
 /* Offline / not-deployed banner. Reuses .warn-banner show/hide. */
