@@ -95,18 +95,6 @@ header.topbar {
   flex: none;
 }
 
-.topbar .brand-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.topbar .subtitle {
-  color: var(--text-dim);
-  font-size: 12px;
-  letter-spacing: 0.05em;
-}
-
 .topbar .spacer {
   flex: 1;
 }
@@ -347,12 +335,12 @@ input[type="color"] {
 table.master-grid {
   border-collapse: separate; /* required for sticky cells to paint borders */
   border-spacing: 0;
-  /* Size to content, not the container — so a container wider than the columns
-     leaves empty background after the last column instead of the browser
-     stretching the final (TOTAL) column to fill the slack. min-width:max-content
-     guarantees the table NEVER squashes its columns to fit a narrow viewport;
-     instead the wrap scrolls horizontally (critical on mobile). */
-  width: auto;
+  /* Fill the container width so few-race grids stretch edge-to-edge with no
+     dead space, while min-width:max-content forces the table to its natural
+     content width (triggering the wrap's horizontal scroll) once there are more
+     races than fit. The sticky columns + Total have fixed widths, so only the
+     race columns (width:auto below) absorb any leftover space. */
+  width: 100%;
   min-width: max-content;
 }
 
@@ -477,6 +465,7 @@ table.master-grid {
   left: 0;
   width: 44px;
   min-width: 44px;
+  max-width: 44px;
   text-align: center;
   padding-left: 4px;
   padding-right: 4px;
@@ -509,6 +498,7 @@ table.master-grid {
   left: 324px;
   width: 52px;
   min-width: 52px;
+  max-width: 52px;
   text-align: center;
   color: var(--text-faint);
   border-right: 1px solid var(--border-strong);
@@ -558,9 +548,10 @@ table.master-grid {
   text-align: center;
   font-size: 15px;
   font-weight: 700;
-  /* Compact: just enough for a 2-3 digit number + padding, not stretched. */
+  /* Compact + pinned: only the race columns absorb leftover width, never this. */
   width: 60px;
   min-width: 60px;
+  max-width: 60px;
 }
 .master-grid thead .mg-total {
   font-size: 11px;
@@ -569,9 +560,13 @@ table.master-grid {
 /* race result cells — inherit the base 11px 12px padding so row height stays
    consistent with the rest of the row; just center horizontally. */
 /* Race columns are narrow now that cells show just "P3" (no points text). */
+/* Race columns are the flexible ones: width:auto + a comfortable min-width
+   means they GROW to absorb leftover container width (so the table fills edge
+   to edge with few races), but never shrink below 44px (which instead triggers
+   horizontal scroll when there are many races). */
 .master-grid td.result-cell {
   min-width: 44px;
-  width: 44px;
+  width: auto;
   padding-left: 6px;
   padding-right: 6px;
   text-align: center;
@@ -580,6 +575,7 @@ table.master-grid {
 }
 .master-grid thead th.mg-race {
   min-width: 44px;
+  width: auto;
   padding-left: 6px;
   padding-right: 6px;
 }
@@ -1383,23 +1379,16 @@ button.btn.primary:disabled {
     flex: 1 1 100%; /* row 1: logo + season selector (the title) */
     min-width: 0;
   }
-  .topbar .brand-text {
-    min-width: 0;
-    flex: 1;
-  }
   /* keep the title selector readable but not overflowing */
   .season-control {
+    flex: 1;
+    min-width: 0;
     flex-wrap: wrap; /* let Rename / + Season drop below the title if tight */
   }
   .season-title-select {
     font-size: 17px;
     max-width: 100%;
     min-height: 40px; /* comfortable tap target */
-  }
-  .topbar .subtitle {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
   .topbar .spacer {
     display: none; /* no flex-push needed once stacked */
@@ -1461,6 +1450,16 @@ button.btn.primary:disabled {
   }
   .master-grid .mg-num {
     left: 274px; /* 154 + 120 */
+  }
+
+  /* --- Total: drop sticky-right on mobile so it doesn't eat the narrow
+     viewport. It scrolls away at the end of the row like a normal column;
+     Team/Driver stay sticky on the left. Also drop the left border that marked
+     the sticky edge, since there's no scroll-under edge to mark anymore. --- */
+  .master-grid .sticky-r {
+    position: static;
+    right: auto;
+    border-left: none;
   }
 
   /* --- other boards: trim cell padding so naturally-narrow tables fit, and
