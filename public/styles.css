@@ -994,6 +994,19 @@ td.col-num {
   align-items: center;
   gap: 6px;
 }
+/* Point Rules lock toggle row (edit mode only) */
+.rules-lock {
+  margin-bottom: 14px;
+}
+.rules-lock .race-lock-toggle.on {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+/* a locked Point Rules field reads as click-to-confirm, not freely editable */
+.rules-input-locked {
+  cursor: pointer;
+  background: rgba(234, 179, 8, 0.1); /* faint yellow, matches the lock cue */
+}
 
 .hint {
   color: var(--text-dim);

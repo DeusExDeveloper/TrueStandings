@@ -76,6 +76,7 @@
       // Each season carries its own editable scoring (defaults to start).
       pointsTable: WSS.defaultScoring().pointsTable,
       fastestLapBonus: WSS.defaultScoring().fastestLapBonus,
+      pointsLocked: false, // Point Rules tab lock (editor safety; unlocked by default)
       teams: [],
       drivers: [],
       races: [],
@@ -304,6 +305,21 @@
     if (race.locked) {
       confirmDialog(`${race.label} is locked. Edit this race anyway?`, action, {
         title: "Locked race",
+        confirmLabel: "Edit anyway",
+        cancelLabel: "Cancel",
+      });
+    } else {
+      action();
+    }
+  }
+
+  // Same one-time confirm gate, scoped to the Point Rules tab. Runs `action`
+  // immediately when the active season's Point Rules are unlocked; otherwise
+  // confirms first (one prompt per edit attempt).
+  function withPointsLockConfirm(action) {
+    if (league.pointsLocked) {
+      confirmDialog("Point Rules are locked. Edit anyway?", action, {
+        title: "Locked Point Rules",
         confirmLabel: "Edit anyway",
         cancelLabel: "Cancel",
       });
@@ -1492,6 +1508,7 @@
       bestOf: raw.bestOf, // preserved if present, else undefined
       pointsTable: scoring.pointsTable,
       fastestLapBonus: scoring.fastestLapBonus,
+      pointsLocked: raw.pointsLocked === true, // default false for older saves
       teams: Array.isArray(raw.teams) ? raw.teams : [],
       drivers: Array.isArray(raw.drivers) ? raw.drivers : [],
       races: Array.isArray(raw.races) ? raw.races : [],
@@ -1974,6 +1991,54 @@
 
   // Render one points table (race or sprint) for the active season. In edit mode
   // each value is an editable number input that mutates league.pointsTable live.
+  // Build a live editable number input for a Point Rules value. `commit(n)`
+  // writes the new value, marks dirty and re-renders (live recompute).
+  function rulesLiveInput(value, commit) {
+    return el("input", {
+      type: "number",
+      class: "inline-num num rules-input",
+      value: String(value),
+      onchange: (e) => {
+        const v = parseInt(e.target.value, 10);
+        const n = Number.isFinite(v) ? v : 0;
+        commit(n);
+        e.target.value = String(n);
+        markDirty();
+        renderAll(); // live recompute of every board from the in-memory season
+      },
+    });
+  }
+
+  // A Point Rules editable field (edit mode only). When the tab is locked,
+  // it renders as a read-only field that, on click/focus, asks the lock confirm
+  // and only then swaps to a live input (one prompt per edit attempt). When
+  // unlocked, it's directly editable.
+  function rulesField(value, commit) {
+    if (!league.pointsLocked) return rulesLiveInput(value, commit);
+
+    // Locked: a click-to-confirm placeholder that swaps to a live input.
+    const placeholder = el("input", {
+      type: "number",
+      class: "inline-num num rules-input rules-input-locked",
+      value: String(value),
+      readonly: "readonly",
+      title: "Point Rules are locked — click to edit",
+    });
+    const onAttempt = (e) => {
+      e.preventDefault();
+      placeholder.blur(); // don't keep focus on the read-only field
+      withPointsLockConfirm(() => {
+        const live = rulesLiveInput(value, commit);
+        if (placeholder.parentNode) placeholder.parentNode.replaceChild(live, placeholder);
+        live.focus();
+        live.select();
+      });
+    };
+    placeholder.addEventListener("mousedown", onAttempt);
+    placeholder.addEventListener("focus", onAttempt);
+    return placeholder;
+  }
+
   function renderRulesTable(boardId, kind) {
     const tbody = $(`#${boardId} tbody`);
     if (!tbody) return;
@@ -1989,22 +2054,12 @@
       tr.appendChild(el("td", { class: "col-pos num", text: `P${pos}` }));
 
       if (editMode) {
-        const input = el("input", {
-          type: "number",
-          class: "inline-num num rules-input",
-          value: String(value),
-          onchange: (e) => {
-            const v = parseInt(e.target.value, 10);
-            // Ensure the per-season table object exists, then write the value.
-            if (!league.pointsTable) league.pointsTable = WSS.defaultScoring().pointsTable;
-            if (!league.pointsTable[kind]) league.pointsTable[kind] = {};
-            league.pointsTable[kind][pos] = Number.isFinite(v) ? v : 0;
-            e.target.value = String(league.pointsTable[kind][pos]);
-            markDirty();
-            renderAll(); // live recompute of every board from the in-memory season
-          },
+        const field = rulesField(value, (n) => {
+          if (!league.pointsTable) league.pointsTable = WSS.defaultScoring().pointsTable;
+          if (!league.pointsTable[kind]) league.pointsTable[kind] = {};
+          league.pointsTable[kind][pos] = n;
         });
-        tr.appendChild(el("td", { class: "col-pts" }, [input]));
+        tr.appendChild(el("td", { class: "col-pts" }, [field]));
       } else {
         tr.appendChild(el("td", { class: "col-pts num", text: String(value) }));
       }
@@ -2012,37 +2067,57 @@
     }
   }
 
+  // Toggle the active season's Point Rules lock (edit-mode only).
+  function togglePointsLock() {
+    if (!editMode) return;
+    league.pointsLocked = !league.pointsLocked;
+    markDirty();
+    renderAll();
+  }
+
   function renderRules() {
+    // Lock toggle — edit-mode only, near the top of the tab. Read-only viewers
+    // see NO lock UI at all (no icon, no state styling), per the race-lock rule.
+    const lockHost = $("#rules-lock");
+    if (lockHost) {
+      lockHost.innerHTML = "";
+      if (editMode) {
+        const locked = !!league.pointsLocked;
+        lockHost.appendChild(
+          el("button", {
+            class: `btn small race-lock-toggle ${locked ? "on" : ""}`,
+            text: locked ? "🔒 Locked" : "🔓 Unlocked",
+            title: locked
+              ? "Point Rules are locked — click to unlock"
+              : "Lock Point Rules to prevent accidental edits",
+            onclick: togglePointsLock,
+          })
+        );
+      }
+    }
+
     renderRulesTable("rules-race-board", "race");
     renderRulesTable("rules-sprint-board", "sprint");
 
-    // Fastest-lap bonus line — read-only text or editable inputs.
+    // Fastest-lap bonus line — read-only text or editable (lock-gated) inputs.
     const host = $("#rules-flbonus");
     if (!host) return;
     host.innerHTML = "";
     const flb = league.fastestLapBonus || WSS.defaultScoring().fastestLapBonus;
 
-    function bonusInput(kind) {
-      return el("input", {
-        type: "number",
-        class: "inline-num num rules-input",
-        value: String(Number.isFinite(flb[kind]) ? flb[kind] : 0),
-        onchange: (e) => {
-          const v = parseInt(e.target.value, 10);
-          if (!league.fastestLapBonus) league.fastestLapBonus = WSS.defaultScoring().fastestLapBonus;
-          league.fastestLapBonus[kind] = Number.isFinite(v) ? v : 0;
-          e.target.value = String(league.fastestLapBonus[kind]);
-          markDirty();
-          renderAll();
-        },
+    function bonusField(kind) {
+      const value = Number.isFinite(flb[kind]) ? flb[kind] : 0;
+      return rulesField(value, (n) => {
+        if (!league.fastestLapBonus) league.fastestLapBonus = WSS.defaultScoring().fastestLapBonus;
+        league.fastestLapBonus[kind] = n;
       });
     }
 
     const label = el("span", { class: "flbonus-label", text: "Fastest Lap bonus:" });
     if (editMode) {
       host.appendChild(label);
-      host.appendChild(el("span", { class: "flbonus-pair" }, [bonusInput("race"), el("span", { text: " Race" })]));
-      host.appendChild(el("span", { class: "flbonus-pair" }, [bonusInput("sprint"), el("span", { text: " Sprint" })]));
+      host.appendChild(el("span", { class: "flbonus-pair" }, [bonusField("race"), el("span", { text: " Race" })]));
+      host.appendChild(el("span", { class: "flbonus-pair" }, [bonusField("sprint"), el("span", { text: " Sprint" })]));
     } else {
       host.appendChild(label);
       host.appendChild(
