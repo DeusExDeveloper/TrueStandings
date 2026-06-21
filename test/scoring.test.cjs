@@ -144,6 +144,58 @@ test("driverPoints / teamPoints respect kind + fastest lap via races", () => {
   assert.equal(WSS.teamPoints("t1", results, drivers, races), 49);
 });
 
+// --- per-season scoring config -----------------------------------------------
+
+test("defaultScoring returns the default tables + bonus", () => {
+  const s = WSS.defaultScoring();
+  assert.equal(s.pointsTable.race[1], 36);
+  assert.equal(s.pointsTable.sprint[1], 10);
+  assert.equal(s.fastestLapBonus.race, 2);
+  assert.equal(s.fastestLapBonus.sprint, 1);
+});
+
+test("pointsForPosition reads a per-season scoring config", () => {
+  const scoring = {
+    pointsTable: { race: { 1: 40, 2: 30 }, sprint: { 1: 8 } },
+    fastestLapBonus: { race: 5, sprint: 3 },
+  };
+  assert.equal(WSS.pointsForPosition(1, "race", scoring), 40);
+  assert.equal(WSS.pointsForPosition(3, "race", scoring), 0); // not in table -> 0
+  assert.equal(WSS.pointsForPosition(1, "sprint", scoring), 8);
+  assert.equal(WSS.fastestLapBonus("race", scoring), 5);
+  // omitting scoring falls back to defaults
+  assert.equal(WSS.pointsForPosition(1, "race"), 36);
+});
+
+test("editing a season's P1 value changes every total that includes a P1", () => {
+  const drivers = [{ id: "d1", teamId: "t1" }, { id: "d2", teamId: "t1" }];
+  const races = [{ id: "r1", kind: "race" }];
+  const results = {
+    d1_r1: { position: 1, status: "finished", teamRace: true }, // P1
+    d2_r1: { position: 3, status: "finished", teamRace: true }, // P3
+  };
+  const scoring = WSS.defaultScoring(); // P1=36, P3=22
+  assert.equal(WSS.driverPoints("d1", results, races, scoring), 36);
+  assert.equal(WSS.teamPoints("t1", results, drivers, races, scoring), 58); // 36 + 22
+
+  // Mutate P1 36 -> 40 (mirrors editing the table live)
+  scoring.pointsTable.race[1] = 40;
+  assert.equal(WSS.driverPoints("d1", results, races, scoring), 40); // P1 now 40
+  assert.equal(WSS.driverPoints("d2", results, races, scoring), 22); // P3 unchanged
+  assert.equal(WSS.teamPoints("t1", results, drivers, races, scoring), 62); // 40 + 22
+});
+
+test("two seasons score the same result independently", () => {
+  const result = { position: 1, status: "finished", fastestLap: true };
+  const s1 = WSS.defaultScoring(); // P1=36, FL +2 -> 38
+  const s2 = {
+    pointsTable: { race: { 1: 25 } },
+    fastestLapBonus: { race: 3 },
+  }; // P1=25, FL +3 -> 28
+  assert.equal(WSS.pointsForResult(result, "race", s1), 38);
+  assert.equal(WSS.pointsForResult(result, "race", s2), 28);
+});
+
 // --- fixture -----------------------------------------------------------------
 
 function fixture() {

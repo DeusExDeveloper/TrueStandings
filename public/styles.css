@@ -140,12 +140,10 @@ header.topbar {
   background: var(--bg-raised);
   color: var(--text);
 }
-/* inline edit-only controls (shown only in edit mode) */
-.edit-only-inline {
-  display: none;
-}
-body.edit-mode .edit-only-inline {
-  display: inline-block;
+/* season management buttons are injected into #season-control by JS ONLY in
+   edit mode (renderSeasonControl), so they need no CSS gating. */
+.season-control .season-mgmt-btn {
+  flex: 0 0 auto;
 }
 
 /* mode badge + auth controls */
@@ -962,6 +960,39 @@ td.col-num {
   width: 36px;
   height: 26px;
   padding: 2px;
+}
+
+/* Point Rules tab */
+.rules-board {
+  width: 100%;
+}
+.rules-board td.col-pts {
+  text-align: center;
+}
+.rules-input {
+  width: 64px;
+  margin: 0 auto;
+  display: block;
+}
+.rules-flbonus {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+  font-size: 14px;
+}
+.rules-flbonus .flbonus-label {
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.rules-flbonus .flbonus-text {
+  font-weight: 700;
+}
+.rules-flbonus .flbonus-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .hint {

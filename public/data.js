@@ -128,6 +128,13 @@
     id: "season-2",
     name: "Season 2",
     title: "World Sim Series — Season 2",
+    // Season 2 uses its OWN scoring (different from Season 1's defaults) to show
+    // per-season point systems: a flatter table and a bigger fastest-lap bonus.
+    pointsTable: {
+      race: { 1: 25, 2: 18, 3: 15, 4: 12, 5: 10, 6: 8, 7: 6, 8: 4, 9: 2, 10: 1 },
+      sprint: { 1: 8, 2: 7, 3: 6, 4: 5, 5: 4, 6: 3, 7: 2, 8: 1 },
+    },
+    fastestLapBonus: { race: 3, sprint: 2 },
     teams: [
       { id: "s2-apex", name: "Apex Dynamics", color: "#e10600" },
       { id: "s2-nocturne", name: "Nocturne GP", color: "#ffb000" },

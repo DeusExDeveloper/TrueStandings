@@ -73,6 +73,9 @@
       id,
       name,
       title: "World Sim Series",
+      // Each season carries its own editable scoring (defaults to start).
+      pointsTable: WSS.defaultScoring().pointsTable,
+      fastestLapBonus: WSS.defaultScoring().fastestLapBonus,
       teams: [],
       drivers: [],
       races: [],
@@ -240,7 +243,8 @@
         league.teams,
         league.results,
         league.drivers,
-        league.races
+        league.races,
+        league
       ).map((s) => s.team);
 
       let blockIndex = 0;
@@ -249,8 +253,8 @@
           .filter((d) => d.teamId === team.id)
           .sort(
             (a, b) =>
-              WSS.driverPoints(b.id, league.results, league.races) -
-              WSS.driverPoints(a.id, league.results, league.races)
+              WSS.driverPoints(b.id, league.results, league.races, league) -
+              WSS.driverPoints(a.id, league.results, league.races, league)
           );
         if (teamDrivers.length === 0) continue;
 
@@ -272,8 +276,8 @@
       if (gridSort === "points") {
         flat.sort(
           (a, b) =>
-            WSS.driverPoints(b.id, league.results, league.races) -
-              WSS.driverPoints(a.id, league.results, league.races) ||
+            WSS.driverPoints(b.id, league.results, league.races, league) -
+              WSS.driverPoints(a.id, league.results, league.races, league) ||
             a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
         );
       } else {
@@ -465,7 +469,7 @@
 
     // TOTAL cell (sticky right) — reuses driverPoints(), the same function the
     // Driver Standings board uses. Opaque bg so race cells don't bleed through.
-    const total = WSS.driverPoints(driver.id, league.results, league.races);
+    const total = WSS.driverPoints(driver.id, league.results, league.races, league);
     tr.appendChild(
       el("td", {
         class: "mg-total sticky-r num",
@@ -651,7 +655,8 @@
       const posVal = posInput.value === "" ? null : parseInt(posInput.value, 10);
       const pts = WSS.pointsForResult(
         { position: posVal, status: state.status, fastestLap: state.fastestLap },
-        race.kind
+        race.kind,
+        league
       );
       preview.textContent = `Scores: ${pts} pts`;
     }
@@ -746,6 +751,7 @@
   // --- add/remove teams, drivers, races --------------------------------------
 
   function openAddTeam() {
+    if (!editMode) return; // edit-mode-only (defense in depth vs CSS-only hide)
     const nameInput = el("input", { type: "text", placeholder: "Team name" });
     const colorInput = el("input", { type: "color", value: "#e10600" });
     const body = el("div", {}, [
@@ -766,6 +772,7 @@
   }
 
   function openAddDriver() {
+    if (!editMode) return; // edit-mode-only (defense in depth vs CSS-only hide)
     if (league.teams.length === 0) {
       return alert("Add a team first.");
     }
@@ -806,6 +813,7 @@
   }
 
   function openAddRace() {
+    if (!editMode) return; // edit-mode-only (defense in depth vs CSS-only hide)
     const labelInput = el("input", { type: "text", placeholder: "e.g. R4 or R5 Sprint" });
     const kindSelect = el("select", {}, [
       el("option", { value: "race", text: "Race" }),
@@ -925,7 +933,7 @@
     const cols = editMode ? 7 : 4;
 
     // Sort by points desc, ties broken alphabetically by name.
-    const standings = WSS.driverStandings(league.drivers, league.results, league.races).sort(
+    const standings = WSS.driverStandings(league.drivers, league.results, league.races, league).sort(
       (a, b) =>
         b.points - a.points ||
         a.driver.name.localeCompare(b.driver.name, undefined, { sensitivity: "base" })
@@ -1050,7 +1058,8 @@
       league.teams,
       league.results,
       league.drivers,
-      league.races
+      league.races,
+      league
     );
 
     if (standings.length === 0) {
@@ -1151,7 +1160,7 @@
         .filter((x) => x.r && x.r.teamRace === true)
         .map((x) => ({
           name: x.d.name,
-          pts: WSS.pointsForResult(x.r, race.kind),
+          pts: WSS.pointsForResult(x.r, race.kind, league),
         }));
 
       const raceTotal = scorers.reduce((s, x) => s + x.pts, 0);
@@ -1181,7 +1190,7 @@
     const host = $("#stage-cards");
     host.innerHTML = "";
 
-    const stages = WSS.stageStandings(league.races, league.drivers, league.results);
+    const stages = WSS.stageStandings(league.races, league.drivers, league.results, undefined, league);
 
     // Fewer than 3 main races -> can't form 3 stages.
     if (!stages) {
@@ -1294,6 +1303,7 @@
   }
 
   function openEditPenalty(existing) {
+    if (!editMode) return; // edit-mode-only (defense in depth vs CSS-only hide)
     const isNew = !existing;
     const pen = existing || {
       id: uid("p"),
@@ -1448,15 +1458,38 @@
     updateSaveButton();
   }
 
+  // Fill in a season's pointsTable / fastestLapBonus from the defaults when the
+  // fields are missing (old saves) or malformed — so migrated seasons score
+  // exactly as they did before this change.
+  function normalizeScoring(raw) {
+    const def = WSS.defaultScoring();
+    const src = raw && typeof raw === "object" ? raw : {};
+    const pt = src.pointsTable && typeof src.pointsTable === "object" ? src.pointsTable : {};
+    const flb = src.fastestLapBonus && typeof src.fastestLapBonus === "object" ? src.fastestLapBonus : {};
+    return {
+      pointsTable: {
+        race: pt.race && typeof pt.race === "object" ? { ...pt.race } : def.pointsTable.race,
+        sprint: pt.sprint && typeof pt.sprint === "object" ? { ...pt.sprint } : def.pointsTable.sprint,
+      },
+      fastestLapBonus: {
+        race: Number.isFinite(flb.race) ? flb.race : def.fastestLapBonus.race,
+        sprint: Number.isFinite(flb.sprint) ? flb.sprint : def.fastestLapBonus.sprint,
+      },
+    };
+  }
+
   // Normalize one season object, filling in any missing fields.
   function normalizeSeason(raw, fallbackId, fallbackName) {
     const base = emptySeason(fallbackId, fallbackName);
     if (!raw || typeof raw !== "object") return base;
+    const scoring = normalizeScoring(raw);
     return {
       id: typeof raw.id === "string" && raw.id ? raw.id : fallbackId,
       name: typeof raw.name === "string" && raw.name ? raw.name : fallbackName,
       title: typeof raw.title === "string" ? raw.title : base.title,
       bestOf: raw.bestOf, // preserved if present, else undefined
+      pointsTable: scoring.pointsTable,
+      fastestLapBonus: scoring.fastestLapBonus,
       teams: Array.isArray(raw.teams) ? raw.teams : [],
       drivers: Array.isArray(raw.drivers) ? raw.drivers : [],
       races: Array.isArray(raw.races) ? raw.races : [],
@@ -1686,8 +1719,14 @@
 
   // Populate the season dropdown to reflect appData. The select shows the
   // active season; switching it is a view-only change (no edit/save required).
+  // The Rename / + Season buttons are EDIT-MODE-ONLY: they are injected into the
+  // DOM here only when editMode is true, and removed entirely otherwise — so a
+  // read-only viewer has no season-management controls present at all (not just
+  // hidden via CSS, which could be bypassed).
   function renderSeasonControl() {
+    const control = $("#season-control");
     const select = $("#season-select");
+
     select.innerHTML = "";
     for (const season of appData.seasons) {
       select.appendChild(
@@ -1695,6 +1734,28 @@
           value: season.id,
           text: season.name,
           ...(season.id === appData.activeSeasonId ? { selected: "selected" } : {}),
+        })
+      );
+    }
+
+    // Remove any previously-injected management buttons, then re-add only in
+    // edit mode.
+    control.querySelectorAll(".season-mgmt-btn").forEach((b) => b.remove());
+    if (editMode) {
+      control.appendChild(
+        el("button", {
+          class: "btn small season-mgmt-btn",
+          title: "Rename season",
+          text: "Rename",
+          onclick: renameSeason,
+        })
+      );
+      control.appendChild(
+        el("button", {
+          class: "btn small season-mgmt-btn",
+          title: "Add a new season",
+          text: "+ Season",
+          onclick: addSeason,
         })
       );
     }
@@ -1708,6 +1769,7 @@
   }
 
   function addSeason() {
+    if (!editMode) return; // edit-mode-only; guard against any stray invocation
     const nameInput = el("input", {
       type: "text",
       placeholder: "Season name",
@@ -1731,6 +1793,7 @@
   }
 
   function renameSeason() {
+    if (!editMode) return; // edit-mode-only; guard against any stray invocation
     const nameInput = el("input", { type: "text", value: league.name });
     const body = el("div", {}, [
       el("div", { class: "field" }, [el("label", { text: "Season name" }), nameInput]),
@@ -1753,7 +1816,7 @@
     const byName = new Map(); // name -> { name, points, seasonIds:Set }
     for (const season of appData.seasons) {
       for (const driver of season.drivers) {
-        const pts = WSS.driverPoints(driver.id, season.results, season.races);
+        const pts = WSS.driverPoints(driver.id, season.results, season.races, season);
         const entry =
           byName.get(driver.name) || { name: driver.name, points: 0, seasonIds: new Set() };
         entry.points += pts;
@@ -1774,7 +1837,7 @@
     const byName = new Map();
     for (const season of appData.seasons) {
       for (const team of season.teams) {
-        const pts = WSS.teamPoints(team.id, season.results, season.drivers, season.races);
+        const pts = WSS.teamPoints(team.id, season.results, season.drivers, season.races, season);
         const entry =
           byName.get(team.name) || { name: team.name, points: 0, seasonIds: new Set() };
         entry.points += pts;
@@ -1836,6 +1899,90 @@
 
   // --- render all ------------------------------------------------------------
 
+  // --- Point Rules (per-season scoring tables) -------------------------------
+
+  // Render one points table (race or sprint) for the active season. In edit mode
+  // each value is an editable number input that mutates league.pointsTable live.
+  function renderRulesTable(boardId, kind) {
+    const tbody = $(`#${boardId} tbody`);
+    if (!tbody) return;
+    tbody.innerHTML = "";
+
+    const table = (league.pointsTable && league.pointsTable[kind]) || {};
+    // Position range is fixed per the defaults (race 1-12, sprint 1-10).
+    const maxPos = kind === "sprint" ? 10 : 12;
+
+    for (let pos = 1; pos <= maxPos; pos++) {
+      const value = Number.isFinite(table[pos]) ? table[pos] : 0;
+      const tr = el("tr");
+      tr.appendChild(el("td", { class: "col-pos num", text: `P${pos}` }));
+
+      if (editMode) {
+        const input = el("input", {
+          type: "number",
+          class: "inline-num num rules-input",
+          value: String(value),
+          onchange: (e) => {
+            const v = parseInt(e.target.value, 10);
+            // Ensure the per-season table object exists, then write the value.
+            if (!league.pointsTable) league.pointsTable = WSS.defaultScoring().pointsTable;
+            if (!league.pointsTable[kind]) league.pointsTable[kind] = {};
+            league.pointsTable[kind][pos] = Number.isFinite(v) ? v : 0;
+            e.target.value = String(league.pointsTable[kind][pos]);
+            markDirty();
+            renderAll(); // live recompute of every board from the in-memory season
+          },
+        });
+        tr.appendChild(el("td", { class: "col-pts" }, [input]));
+      } else {
+        tr.appendChild(el("td", { class: "col-pts num", text: String(value) }));
+      }
+      tbody.appendChild(tr);
+    }
+  }
+
+  function renderRules() {
+    renderRulesTable("rules-race-board", "race");
+    renderRulesTable("rules-sprint-board", "sprint");
+
+    // Fastest-lap bonus line — read-only text or editable inputs.
+    const host = $("#rules-flbonus");
+    if (!host) return;
+    host.innerHTML = "";
+    const flb = league.fastestLapBonus || WSS.defaultScoring().fastestLapBonus;
+
+    function bonusInput(kind) {
+      return el("input", {
+        type: "number",
+        class: "inline-num num rules-input",
+        value: String(Number.isFinite(flb[kind]) ? flb[kind] : 0),
+        onchange: (e) => {
+          const v = parseInt(e.target.value, 10);
+          if (!league.fastestLapBonus) league.fastestLapBonus = WSS.defaultScoring().fastestLapBonus;
+          league.fastestLapBonus[kind] = Number.isFinite(v) ? v : 0;
+          e.target.value = String(league.fastestLapBonus[kind]);
+          markDirty();
+          renderAll();
+        },
+      });
+    }
+
+    const label = el("span", { class: "flbonus-label", text: "Fastest Lap bonus:" });
+    if (editMode) {
+      host.appendChild(label);
+      host.appendChild(el("span", { class: "flbonus-pair" }, [bonusInput("race"), el("span", { text: " Race" })]));
+      host.appendChild(el("span", { class: "flbonus-pair" }, [bonusInput("sprint"), el("span", { text: " Sprint" })]));
+    } else {
+      host.appendChild(label);
+      host.appendChild(
+        el("span", {
+          class: "flbonus-text num",
+          text: ` +${flb.race ?? 0} (Race) / +${flb.sprint ?? 0} (Sprint)`,
+        })
+      );
+    }
+  }
+
   function renderAll() {
     renderSeasonControl();
     renderGrid();
@@ -1843,6 +1990,7 @@
     renderTeamBoard();
     renderStageCards();
     renderPenaltyBoard();
+    renderRules();
     renderAllTime();
   }
 
@@ -1871,10 +2019,10 @@
       renderGrid();
     });
 
-    // Season control: switch (everyone), add/rename (edit mode only)
+    // Season switching is allowed for everyone. The Rename / + Season buttons
+    // are injected (with their handlers) by renderSeasonControl() ONLY in edit
+    // mode, so they aren't wired here.
     $("#season-select").addEventListener("change", (e) => switchSeason(e.target.value));
-    $("#btn-add-season").addEventListener("click", addSeason);
-    $("#btn-rename-season").addEventListener("click", renameSeason);
 
     // modal backdrop click to close
     $("#modal-backdrop").addEventListener("click", (e) => {

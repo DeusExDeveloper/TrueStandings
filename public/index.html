@@ -14,12 +14,9 @@
         <span class="tick"></span>
         <div id="season-control" class="season-control">
           <select id="season-select" class="season-title-select"></select>
-          <button id="btn-rename-season" class="btn small edit-only-inline" title="Rename season">
-            Rename
-          </button>
-          <button id="btn-add-season" class="btn small edit-only-inline" title="Add a new season">
-            + Season
-          </button>
+          <!-- Rename / + Season buttons are injected by renderSeasonControl()
+               ONLY in edit mode — never present in the DOM for read-only
+               viewers (not merely hidden). -->
         </div>
       </div>
       <span class="spacer"></span>
@@ -41,6 +38,7 @@
         <button class="tab" data-view="drivers">Drivers</button>
         <button class="tab" data-view="teams">Teams</button>
         <button class="tab" data-view="penalties">Penalties</button>
+        <button class="tab" data-view="rules">Point Rules</button>
         <button class="tab" data-view="alltime">All-Time</button>
       </nav>
 
@@ -179,6 +177,40 @@
           Every driver's full season, race by race. Cells tinted with the team
           colour scored for the team that round; untinted cells were independent.
           Unlock editing to click any cell and enter a result.
+        </p>
+      </section>
+
+      <!-- Point Rules — per-season scoring tables (editable in edit mode) -->
+      <section id="rules-view" class="view">
+        <div class="standings-grid">
+          <div class="panel">
+            <h2>Race Points</h2>
+            <div class="board-wrap">
+              <table class="board rules-board" id="rules-race-board">
+                <thead>
+                  <tr><th class="col-pos">Pos</th><th class="col-pts">Points</th></tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel">
+            <h2>Sprint Points</h2>
+            <div class="board-wrap">
+              <table class="board rules-board" id="rules-sprint-board">
+                <thead>
+                  <tr><th class="col-pos">Pos</th><th class="col-pts">Points</th></tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div id="rules-flbonus" class="rules-flbonus"></div>
+        <p class="hint">
+          Scoring is per season — these values apply only to the selected season.
+          Positions beyond the table score 0. Edit mode makes every value editable;
+          changes apply live and persist on Save.
         </p>
       </section>
 

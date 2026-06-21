@@ -16,12 +16,14 @@
   "use strict";
 
   // ---------------------------------------------------------------------------
-  // Fixed points tables. Hardcoded by design — NOT editable from the UI.
-  // Positions map 1:1 to keys. Positions outside a table score 0.
+  // DEFAULT points tables + fastest-lap bonus. These are the starting values
+  // for a new season and the migration fill-in for older seasons — but scoring
+  // is now PER-SEASON: each season carries its own pointsTable / fastestLapBonus
+  // and may differ. Positions map 1:1 to keys; positions outside a table = 0.
   //   - Main races (kind "race"):  P1=36 … P12=1, P13+ = 0
   //   - Sprint races (kind "sprint"): P1=10 … P10=1, P11+ = 0
   // ---------------------------------------------------------------------------
-  const POINTS_BY_POSITION = {
+  const DEFAULT_POINTS_BY_POSITION = {
     1: 36,
     2: 26,
     3: 22,
@@ -36,7 +38,7 @@
     12: 1,
   };
 
-  const SPRINT_POINTS_BY_POSITION = {
+  const DEFAULT_SPRINT_POINTS_BY_POSITION = {
     1: 10,
     2: 9,
     3: 8,
@@ -50,45 +52,81 @@
   };
 
   // Fastest-lap bonus, by race kind.
-  const FASTEST_LAP_BONUS = { race: 2, sprint: 1 };
+  const DEFAULT_FASTEST_LAP_BONUS = { race: 2, sprint: 1 };
+
+  // Back-compat aliases (some callers/tests referenced the old names).
+  const POINTS_BY_POSITION = DEFAULT_POINTS_BY_POSITION;
+  const SPRINT_POINTS_BY_POSITION = DEFAULT_SPRINT_POINTS_BY_POSITION;
+  const FASTEST_LAP_BONUS = DEFAULT_FASTEST_LAP_BONUS;
 
   // Max number of drivers a single team may flag teamRace:true for one race.
   const MAX_TEAM_DRIVERS_PER_RACE = 2;
+
+  /**
+   * A fresh per-season scoring config with the default values. Used for new
+   * seasons and to backfill older seasons missing the fields.
+   * @returns {{pointsTable:{race:object,sprint:object}, fastestLapBonus:{race:number,sprint:number}}}
+   */
+  function defaultScoring() {
+    return {
+      pointsTable: {
+        race: { ...DEFAULT_POINTS_BY_POSITION },
+        sprint: { ...DEFAULT_SPRINT_POINTS_BY_POSITION },
+      },
+      fastestLapBonus: { ...DEFAULT_FASTEST_LAP_BONUS },
+    };
+  }
 
   // Normalize an arbitrary kind value to "race" | "sprint" (default "race").
   function normalizeKind(raceKind) {
     return raceKind === "sprint" ? "sprint" : "race";
   }
 
+  // Resolve the points table for a kind from a scoring config, falling back to
+  // the defaults when the config (or a piece of it) is missing.
+  function pointsTableFor(kind, scoring) {
+    const k = normalizeKind(kind);
+    const table = scoring && scoring.pointsTable && scoring.pointsTable[k];
+    if (table && typeof table === "object") return table;
+    return k === "sprint" ? DEFAULT_SPRINT_POINTS_BY_POSITION : DEFAULT_POINTS_BY_POSITION;
+  }
+
   /**
-   * Position points for a finishing position under the given race kind.
-   * Picks the main or sprint table. Positions outside the table score 0.
+   * Position points for a finishing position under the given race kind, read
+   * from the supplied per-season scoring config (defaults if omitted).
+   * Positions outside the table score 0.
    *
    * @param {number|null} position
    * @param {string} raceKind "race" | "sprint"
+   * @param {object} [scoring] per-season scoring config
    * @returns {number}
    */
-  function pointsForPosition(position, raceKind) {
+  function pointsForPosition(position, raceKind, scoring) {
     if (position == null || !Number.isFinite(position) || position < 1) return 0;
-    const table =
-      normalizeKind(raceKind) === "sprint" ? SPRINT_POINTS_BY_POSITION : POINTS_BY_POSITION;
-    return table[position] || 0;
+    const table = pointsTableFor(raceKind, scoring);
+    const pts = table[position];
+    return Number.isFinite(pts) ? pts : 0;
   }
 
   /**
-   * Fastest-lap bonus for a race kind: +2 for a main race, +1 for a sprint.
+   * Fastest-lap bonus for a race kind, from the per-season scoring config
+   * (defaults if omitted): +2 main / +1 sprint by default.
    * @param {string} raceKind
+   * @param {object} [scoring] per-season scoring config
    * @returns {number}
    */
-  function fastestLapBonus(raceKind) {
-    return FASTEST_LAP_BONUS[normalizeKind(raceKind)];
+  function fastestLapBonus(raceKind, scoring) {
+    const k = normalizeKind(raceKind);
+    const v = scoring && scoring.fastestLapBonus && scoring.fastestLapBonus[k];
+    return Number.isFinite(v) ? v : DEFAULT_FASTEST_LAP_BONUS[k];
   }
 
   /**
-   * Total points scored for a single result row, given its race kind.
+   * Total points scored for a single result row, given its race kind and the
+   * per-season scoring config.
    *
-   *   total = (0 if DSQ, else pointsForPosition(position, kind))
-   *         + (0 if DSQ, else fastestLapBonus(kind) when fastestLap is set)
+   *   total = (0 if DSQ, else pointsForPosition(position, kind, scoring))
+   *         + (0 if DSQ, else fastestLapBonus(kind, scoring) when fastestLap)
    *
    * - DSQ scores 0 total — including no fastest-lap bonus.
    * - DNF scores 0 position points but STILL earns the fastest-lap bonus.
@@ -97,16 +135,18 @@
    *
    * @param {{position:number|null, status:string, fastestLap?:boolean}|null} result
    * @param {string} [raceKind] "race" | "sprint" (defaults to main race)
+   * @param {object} [scoring] per-season scoring config (defaults if omitted)
    * @returns {number}
    */
-  function pointsForResult(result, raceKind) {
+  function pointsForResult(result, raceKind, scoring) {
     if (!result) return 0;
     if (result.status === "dsq") return 0; // DSQ wipes everything, incl. bonus
 
     const kind = normalizeKind(raceKind);
     // DNF scores 0 position points but can still hold the fastest lap.
-    const positionPoints = result.status === "dnf" ? 0 : pointsForPosition(result.position, kind);
-    const bonus = result.fastestLap ? fastestLapBonus(kind) : 0;
+    const positionPoints =
+      result.status === "dnf" ? 0 : pointsForPosition(result.position, kind, scoring);
+    const bonus = result.fastestLap ? fastestLapBonus(kind, scoring) : 0;
     return positionPoints + bonus;
   }
 
@@ -154,9 +194,10 @@
    * @param {Object<string, object>} results
    * @param {Array<{id:string, kind?:string}>} [races] needed to pick the sprint
    *        vs main points table per result; omitting it treats all as main.
+   * @param {object} [scoring] per-season scoring config (pointsTable + bonus)
    * @returns {number}
    */
-  function driverPoints(driverId, results, races) {
+  function driverPoints(driverId, results, races, scoring) {
     if (!results) return 0;
     const kinds = raceKindMap(races);
     let total = 0;
@@ -165,7 +206,7 @@
       // Keys are `${driverId}_${raceId}`. Match on the driver prefix.
       // driverId never contains "_" in our id scheme, so a prefix check is safe.
       if (key.indexOf(suffix) === 0) {
-        total += pointsForResult(results[key], kinds[raceIdFromKey(key)]);
+        total += pointsForResult(results[key], kinds[raceIdFromKey(key)], scoring);
       }
     }
     return total;
@@ -183,15 +224,16 @@
    * @param {Object<string, object>} results
    * @param {Array<{id:string, teamId:string}>} drivers
    * @param {string} [raceKind] "race" | "sprint" for the correct points table
+   * @param {object} [scoring] per-season scoring config
    * @returns {number}
    */
-  function teamPointsForRace(teamId, raceId, results, drivers, raceKind) {
+  function teamPointsForRace(teamId, raceId, results, drivers, raceKind, scoring) {
     let total = 0;
     for (const driver of drivers) {
       if (driver.teamId !== teamId) continue;
       const result = getResult(results, driver.id, raceId);
       if (result && result.teamRace === true) {
-        total += pointsForResult(result, raceKind);
+        total += pointsForResult(result, raceKind, scoring);
       }
     }
     return total;
@@ -205,12 +247,13 @@
    * @param {Object<string, object>} results
    * @param {Array<{id:string, teamId:string}>} drivers
    * @param {Array<{id:string}>} races
+   * @param {object} [scoring] per-season scoring config
    * @returns {number}
    */
-  function teamPoints(teamId, results, drivers, races) {
+  function teamPoints(teamId, results, drivers, races, scoring) {
     let total = 0;
     for (const race of races) {
-      total += teamPointsForRace(teamId, race.id, results, drivers, race.kind);
+      total += teamPointsForRace(teamId, race.id, results, drivers, race.kind, scoring);
     }
     return total;
   }
@@ -272,9 +315,9 @@
    *
    * @returns {Array<{driver:object, points:number}>}
    */
-  function driverStandings(drivers, results, races) {
+  function driverStandings(drivers, results, races, scoring) {
     return drivers
-      .map((driver) => ({ driver, points: driverPoints(driver.id, results, races) }))
+      .map((driver) => ({ driver, points: driverPoints(driver.id, results, races, scoring) }))
       .sort((a, b) => b.points - a.points);
   }
 
@@ -283,11 +326,11 @@
    *
    * @returns {Array<{team:object, points:number}>}
    */
-  function teamStandings(teams, results, drivers, races) {
+  function teamStandings(teams, results, drivers, races, scoring) {
     return teams
       .map((team) => ({
         team,
-        points: teamPoints(team.id, results, drivers, races),
+        points: teamPoints(team.id, results, drivers, races, scoring),
       }))
       .sort((a, b) => b.points - a.points);
   }
@@ -379,9 +422,10 @@
    * @param {Array<{id:string}>} drivers
    * @param {Object<string,object>} results
    * @param {number} [topN] how many leaders to keep per stage (default 3)
+   * @param {object} [scoring] per-season scoring config
    * @returns {null | Array<{index, label, standings: Array<{driver, points}>}>}
    */
-  function stageStandings(races, drivers, results, topN) {
+  function stageStandings(races, drivers, results, topN, scoring) {
     const stages = assignRacesToStages(races);
     if (!stages) return null;
     const limit = topN == null ? 3 : topN;
@@ -392,7 +436,7 @@
         .map((driver) => {
           let points = 0;
           for (const raceId of stage.raceIds) {
-            points += pointsForResult(getResult(results, driver.id, raceId), kinds[raceId]);
+            points += pointsForResult(getResult(results, driver.id, raceId), kinds[raceId], scoring);
           }
           return { driver, points };
         })
@@ -408,7 +452,11 @@
     POINTS_BY_POSITION,
     SPRINT_POINTS_BY_POSITION,
     FASTEST_LAP_BONUS,
+    DEFAULT_POINTS_BY_POSITION,
+    DEFAULT_SPRINT_POINTS_BY_POSITION,
+    DEFAULT_FASTEST_LAP_BONUS,
     MAX_TEAM_DRIVERS_PER_RACE,
+    defaultScoring,
     pointsForPosition,
     fastestLapBonus,
     pointsForResult,
