@@ -438,11 +438,8 @@ table.master-grid {
   opacity: 1;
   filter: none;
 }
-.master-grid thead th.mg-race .race-lock-indicator {
-  margin-left: 6px;
-  font-size: 12px;
-}
-/* a locked column's header reads distinct (subtle yellow underline) */
+/* a locked column's header reads distinct (subtle yellow underline) — only
+   ever applied in edit mode (the .race-locked class is set only when editing). */
 .master-grid thead th.mg-race.race-locked {
   box-shadow: inset 0 -2px 0 rgba(234, 179, 8, 0.7);
 }

@@ -311,9 +311,13 @@
   // One race column header. In edit mode the label is click-to-rename and the
   // RACE/SPR badge toggles the race kind; the per-race lock toggle is kept.
   // A locked race confirms before allowing rename or type change (same modal as
-  // its result cells). Read-only viewers see static label + badge (+ lock icon).
+  // its result cells). Read-only viewers see only the static label + badge — no
+  // lock UI of any kind (the lock is an editor-only safety mechanism).
   function renderRaceHeader(race) {
-    const th = el("th", { class: `mg-race ${race.locked ? "race-locked" : ""}` });
+    // The per-race lock is an editor safety mechanism only — never surface any
+    // lock indicator (header marker, padlock, yellow tint) to read-only viewers.
+    const showLock = editMode && race.locked;
+    const th = el("th", { class: `mg-race ${showLock ? "race-locked" : ""}` });
 
     // --- label (rename) ---
     function makeLabelInput(autofocus) {
@@ -395,9 +399,8 @@
           },
         })
       );
-    } else if (race.locked) {
-      th.appendChild(el("span", { class: "race-lock-indicator", text: "🔒", title: "Locked" }));
     }
+    // No read-only lock indicator: locking is meaningless to a viewer.
 
     return th;
   }
@@ -484,11 +487,13 @@
       WSS.isTeamRaceOverLimit(driver.teamId, race.id, league.results, league.drivers);
 
     const hasFastestLap = !!(result && result.fastestLap && result.position != null);
-    const raceLocked = !!race.locked;
+    // The locked-column yellow tint is an editor-only safety cue — never show it
+    // to read-only viewers (the lock has no meaning for someone who can't edit).
+    const raceLocked = editMode && !!race.locked;
 
-    // Background layering: a locked column shows a persistent yellow status
-    // tint (visible to everyone); otherwise the team-scored cells show the team
-    // tint. Locked wins so the whole column reads as locked at a glance.
+    // Background layering: in edit mode a locked column shows a yellow status
+    // tint; otherwise team-scored cells show the team tint. Locked wins so the
+    // whole column reads as locked at a glance (edit mode only).
     let bg = null;
     if (raceLocked) bg = "rgba(234, 179, 8, 0.16)"; // soft yellow (#eab308)
     else if (isTeamScored) bg = hexToRgba(team.color, 0.18);
