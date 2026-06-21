@@ -81,25 +81,24 @@ header.topbar {
 
 .topbar .brand {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  align-items: center;
+  gap: 12px;
 }
 
 .topbar .brand .tick {
   width: 10px;
-  height: 22px;
+  height: 30px;
   background: var(--accent);
   box-shadow: 0 0 12px var(--accent-dim);
   display: inline-block;
   transform: skewX(-12deg);
+  flex: none;
 }
 
-.topbar h1 {
-  font-size: 16px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  margin: 0;
-  font-weight: 700;
+.topbar .brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .topbar .subtitle {
@@ -112,28 +111,46 @@ header.topbar {
   flex: 1;
 }
 
-/* season control (header) */
+/* season control — the selector IS the page title (top-left, prominent) */
 .season-control {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-right: 4px;
 }
-.season-pick {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.season-pick-label {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.1em;
+/* the dropdown styled as the main heading: large, uppercase, but functional */
+.season-title-select {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-dim);
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 2px 26px 2px 6px;
+  margin-left: -6px; /* optically align the text with the tick */
+  cursor: pointer;
+  /* custom caret so it reads as a heading with an affordance, not a form box */
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-dim) 50%),
+    linear-gradient(135deg, var(--text-dim) 50%, transparent 50%);
+  background-position: calc(100% - 14px) center, calc(100% - 9px) center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
 }
-#season-select {
-  padding: 4px 6px;
-  font-size: 13px;
+.season-title-select:hover,
+.season-title-select:focus {
+  outline: none;
+  border-color: var(--border-strong);
+  background-color: var(--bg-cell);
+}
+.season-title-select option {
+  font-size: 14px;
+  letter-spacing: normal;
+  text-transform: none;
+  background: var(--bg-raised);
+  color: var(--text);
 }
 /* inline edit-only controls (shown only in edit mode) */
 .edit-only-inline {
@@ -299,6 +316,9 @@ input[type="color"] {
      long season. */
   max-height: calc(100vh - 230px);
   overflow: auto;
+  /* Momentum touch scrolling on iOS; don't block touch-drag horizontally. */
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
   /* Firefox: thin, dark, muted thumb — scoped to this container only. */
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) #0c0e12;
@@ -327,7 +347,13 @@ input[type="color"] {
 table.master-grid {
   border-collapse: separate; /* required for sticky cells to paint borders */
   border-spacing: 0;
-  width: 100%;
+  /* Size to content, not the container — so a container wider than the columns
+     leaves empty background after the last column instead of the browser
+     stretching the final (TOTAL) column to fill the slack. min-width:max-content
+     guarantees the table NEVER squashes its columns to fit a narrow viewport;
+     instead the wrap scrolls horizontally (critical on mobile). */
+  width: auto;
+  min-width: max-content;
 }
 
 .master-grid th,
@@ -532,7 +558,9 @@ table.master-grid {
   text-align: center;
   font-size: 15px;
   font-weight: 700;
-  min-width: 64px;
+  /* Compact: just enough for a 2-3 digit number + padding, not stretched. */
+  width: 60px;
+  min-width: 60px;
 }
 .master-grid thead .mg-total {
   font-size: 11px;
@@ -1333,4 +1361,131 @@ button.btn.primary:disabled {
 }
 .offline-banner .icon {
   margin-right: 6px;
+}
+
+/* =========================================================================
+   Mobile / responsive (Prompt 20)
+   ========================================================================= */
+
+@media (max-width: 640px) {
+  main {
+    padding: 14px;
+  }
+
+  /* --- header: stack into clean rows, no mid-phrase wrapping --- */
+  header.topbar {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 12px;
+    padding: 12px 14px;
+  }
+  .topbar .brand {
+    flex: 1 1 100%; /* row 1: logo + season selector (the title) */
+    min-width: 0;
+  }
+  .topbar .brand-text {
+    min-width: 0;
+    flex: 1;
+  }
+  /* keep the title selector readable but not overflowing */
+  .season-control {
+    flex-wrap: wrap; /* let Rename / + Season drop below the title if tight */
+  }
+  .season-title-select {
+    font-size: 17px;
+    max-width: 100%;
+    min-height: 40px; /* comfortable tap target */
+  }
+  .topbar .subtitle {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .topbar .spacer {
+    display: none; /* no flex-push needed once stacked */
+  }
+  /* row(s) of auth/save controls below the title — wrap sensibly as a group
+     with comfortable tap targets. They flow in DOM order after the brand. */
+  .topbar > .btn,
+  .season-control .btn {
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+  }
+  #save-status {
+    align-self: center;
+  }
+
+  /* --- tabs: horizontal swipe scroll instead of wrapping --- */
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Firefox */
+  }
+  .tabs::-webkit-scrollbar {
+    display: none; /* WebKit */
+  }
+  .tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 12px 13px; /* taller tap target */
+  }
+
+  /* --- Race Grid: the breakout to 100vw causes page-level overflow on phones.
+     Instead, let the grid use the normal main padding and rely on the wrap's
+     own horizontal scroll. --- */
+  #grid-view.view.active {
+    width: auto;
+    max-width: none;
+    margin-left: 0;
+    margin-right: 0;
+    padding: 0;
+  }
+  .master-grid-wrap {
+    /* a touch more height on phones since the header stacks taller */
+    max-height: calc(100vh - 200px);
+  }
+
+  /* slightly narrower sticky name columns to leave more room for race data */
+  .master-grid .mg-team {
+    width: 110px;
+    min-width: 110px;
+    max-width: 110px;
+  }
+  .master-grid .mg-driver {
+    left: 154px; /* 44 (lock) + 110 (team) */
+    width: 120px;
+    min-width: 120px;
+    max-width: 120px;
+  }
+  .master-grid .mg-num {
+    left: 274px; /* 154 + 120 */
+  }
+
+  /* --- other boards: trim cell padding so naturally-narrow tables fit, and
+     rely on .board-wrap{overflow-x:auto} for the wider Penalties table --- */
+  table.board thead th,
+  table.board tbody td {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .penalties-board {
+    /* ensure it scrolls rather than squashing its many columns */
+    min-width: max-content;
+  }
+}
+
+/* Very narrow phones: drop "No." from the sticky set so more race columns are
+   reachable. Team + Driver stay sticky (and opaque) as the minimum. */
+@media (max-width: 480px) {
+  .master-grid .mg-num.sticky-l {
+    position: static; /* scrolls with the race columns now */
+    left: auto;
+  }
+  /* keep the No. column compact when it scrolls */
+  .master-grid .mg-num {
+    width: 44px;
+    min-width: 44px;
+  }
 }

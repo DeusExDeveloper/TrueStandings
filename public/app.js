@@ -1793,7 +1793,6 @@
   // --- render all ------------------------------------------------------------
 
   function renderAll() {
-    $("#league-title").textContent = league.title;
     renderSeasonControl();
     renderGrid();
     renderDriverBoard();

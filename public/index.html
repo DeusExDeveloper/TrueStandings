@@ -8,26 +8,24 @@
   </head>
   <body>
     <header class="topbar">
+      <!-- The season selector IS the page title: prominent, top-left, doubling
+           as the main heading and the season switcher. -->
       <div class="brand">
         <span class="tick"></span>
-        <h1 id="league-title">WSS Standings</h1>
+        <div class="brand-text">
+          <div id="season-control" class="season-control">
+            <select id="season-select" class="season-title-select"></select>
+            <button id="btn-rename-season" class="btn small edit-only-inline" title="Rename season">
+              Rename
+            </button>
+            <button id="btn-add-season" class="btn small edit-only-inline" title="Add a new season">
+              + Season
+            </button>
+          </div>
+          <span class="subtitle">World Sim Series · timing screen</span>
+        </div>
       </div>
-      <span class="subtitle">World Sim Series · timing screen</span>
       <span class="spacer"></span>
-
-      <!-- Season control: switch (everyone) + add/rename (edit mode) -->
-      <div id="season-control" class="season-control">
-        <label class="season-pick">
-          <span class="season-pick-label">Season</span>
-          <select id="season-select"></select>
-        </label>
-        <button id="btn-rename-season" class="btn small edit-only-inline" title="Rename season">
-          Rename
-        </button>
-        <button id="btn-add-season" class="btn small edit-only-inline" title="Add a new season">
-          + Season
-        </button>
-      </div>
 
       <span id="save-status" class="save-status"></span>
       <span id="mode-badge" class="mode-badge">Read-only</span>
