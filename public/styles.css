@@ -298,10 +298,10 @@ input[type="color"] {
 }
 
 .master-grid-wrap {
-  /* Cap height so the sticky header + horizontal scroll stay usable on a
-     long season. */
-  max-height: calc(100vh - 230px);
-  overflow: auto;
+  /* Scroll horizontally for race columns only — grow vertically to fit every
+     row (the page scrolls vertically, never this container). No height cap. */
+  overflow-x: auto;
+  overflow-y: visible;
   /* Momentum touch scrolling on iOS; don't block touch-drag horizontally. */
   -webkit-overflow-scrolling: touch;
   touch-action: pan-x pan-y;
@@ -1483,10 +1483,6 @@ button.btn:disabled:hover {
     margin-left: 0;
     margin-right: 0;
     padding: 0;
-  }
-  .master-grid-wrap {
-    /* a touch more height on phones since the header stacks taller */
-    max-height: calc(100vh - 200px);
   }
 
   /* slightly narrower sticky name columns to leave more room for race data */

@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(node -e 'const c=require\\(\"fs\"\\).readFileSync\\(\"public/styles.css\",\"utf8\"\\);const o=\\(c.match\\(/{/g\\)||[]\\).length,x=\\(c.match\\(/}/g\\)||[]\\).length;console.log\\(o,\"/\",x,o===x?\"OK\":\"MISMATCH\"\\)')"
     ]
   }
 }
