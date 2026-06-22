@@ -537,13 +537,6 @@ table.master-grid {
 .master-grid .mg-driver .dname {
   font-weight: 600;
 }
-.master-grid tr.locked .mg-driver .dname {
-  color: var(--text-dim);
-}
-.master-grid .lock-icon {
-  color: var(--warn);
-}
-
 /* TOTAL column — centered, with the same comfortable padding as its neighbors
    (inherits 11px 12px from the base cell rule). */
 .master-grid .mg-total {
@@ -599,17 +592,6 @@ table.master-grid {
     inset 0 0 0 4px rgba(34, 197, 94, 0.5),
     inset 0 0 10px rgba(34, 197, 94, 0.22);
 }
-/* locked rows in edit mode: hatched to read as frozen */
-.master-grid td.result-cell.readonly {
-  background-image: repeating-linear-gradient(
-    -45deg,
-    transparent,
-    transparent 6px,
-    rgba(255, 176, 0, 0.05) 6px,
-    rgba(255, 176, 0, 0.05) 12px
-  );
-}
-
 .pos-tag {
   font-size: 13px;
   font-weight: 700;

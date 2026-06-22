@@ -429,9 +429,11 @@
   // row (no merged/rowspan cell); the per-row left-accent shadow stacks into a
   // continuous bar per team block.
   function renderMasterRow(driver, team, blockClass) {
-    const driverLocked = driver.locked === true;
+    // NOTE: driver.locked has NO effect in the Race Grid — result cells are
+    // always editable in edit mode regardless of a driver's lock. The lock only
+    // protects that driver's roster fields on the Drivers tab.
     const tr = el("tr", {
-      class: `mg-row ${blockClass} ${driverLocked ? "locked" : ""}`,
+      class: `mg-row ${blockClass}`,
     });
 
     // Opaque base bg for this block + a SOLID team tint blended over it. Sticky
@@ -440,14 +442,10 @@
     const baseBg = BLOCK_BG[blockClass] || "#121419";
     const teamTintSolid = blendHex(team.color, baseBg, 0.22);
 
-    // LOCKED cell (sticky) — display only. The lock is toggled on the Drivers
-    // tab (this tab is for entering results, not managing the roster).
+    // Empty sticky spacer cell, kept only to align with the header's leading
+    // column. The driver lock is no longer surfaced here — it does not affect
+    // the Race Grid at all (managed entirely on the Drivers tab).
     const lockCell = el("td", { class: "mg-lock sticky-l", style: `background:${baseBg}` });
-    if (driverLocked) {
-      lockCell.appendChild(
-        el("span", { class: "lock-icon", text: "🔒", title: "Row locked (manage on Drivers tab)" })
-      );
-    }
     tr.appendChild(lockCell);
 
     // TEAM cell (sticky), tinted with the team color. Rendered on EVERY row so
@@ -500,11 +498,12 @@
 
   function renderResultCell(driver, race, team) {
     const result = WSS.getResult(league.results, driver.id, race.id);
-    // Per-driver row lock only — strictly `=== true` so a non-boolean can't
-    // silently freeze the row. This is the ONLY lock that gates a result cell;
-    // it has nothing to do with the Point Rules lock (league.pointsLocked).
-    const driverLocked = driver.locked === true;
-    const readonly = driverLocked || !editMode;
+    // Race result cells are editable for EVERY driver whenever the app is in
+    // edit mode. The per-driver lock (driver.locked) deliberately does NOT gate
+    // result cells — it only protects that driver's roster fields (name / team /
+    // number) on the Drivers tab. The only per-cell gate here is the per-race
+    // column lock (race.locked), handled as a click-time confirm below.
+    const readonly = !editMode;
     const isTeamScored = !!(result && result.teamRace === true && result.position != null);
     const overLimit =
       isTeamScored &&
@@ -526,7 +525,6 @@
     const td = el("td", {
       class:
         "mg-cell result-cell" +
-        (driverLocked ? " readonly" : "") +
         (isTeamScored ? " team-scored" : "") +
         (overLimit ? " over-limit" : "") +
         (hasFastestLap ? " fastest-lap" : "") +
@@ -556,7 +554,8 @@
       );
     }
 
-    // Clickable only when editable (unlocked app + unlocked row).
+    // Clickable whenever the app is in edit mode — for every driver, locked or
+    // not. (A locked race column still confirms before opening the editor.)
     if (!readonly) {
       td.classList.add("editable");
       td.addEventListener("click", () => {
@@ -892,7 +891,7 @@
 
   function removeDriver(driverId) {
     const driver = league.drivers.find((d) => d.id === driverId);
-    if (driver && driver.locked) {
+    if (driver && driver.locked === true) {
       return alert("This driver's row is locked. Unlock it first to remove.");
     }
     confirmRemove(`Remove ${driver ? driver.name : "driver"} and all their results?`, () => {
@@ -982,7 +981,7 @@
           type: "text",
           class: "inline-text",
           value: driver.name,
-          disabled: driver.locked ? "disabled" : null,
+          disabled: driver.locked === true ? "disabled" : null,
           onchange: (e) => {
             const v = e.target.value.trim();
             if (v) {
@@ -1004,7 +1003,7 @@
           "select",
           {
             class: "inline-select",
-            disabled: driver.locked ? "disabled" : null,
+            disabled: driver.locked === true ? "disabled" : null,
             onchange: (e) => {
               driver.teamId = e.target.value;
               markDirty();
@@ -1029,7 +1028,7 @@
           class: "inline-num num",
           min: "0",
           value: String(driver.number),
-          disabled: driver.locked ? "disabled" : null,
+          disabled: driver.locked === true ? "disabled" : null,
           onchange: (e) => {
             driver.number = e.target.value === "" ? 0 : parseInt(e.target.value, 10);
             markDirty();
@@ -1040,9 +1039,9 @@
         const lockCell = el("td", { class: "col-lock edit-only-cell" });
         lockCell.appendChild(
           el("button", {
-            class: `btn small ${driver.locked ? "" : "ghost"}`,
-            text: driver.locked ? "🔒 Locked" : "Unlocked",
-            title: driver.locked ? "Click to unlock" : "Click to lock",
+            class: `btn small ${driver.locked === true ? "" : "ghost"}`,
+            text: driver.locked === true ? "🔒 Locked" : "Unlocked",
+            title: driver.locked === true ? "Click to unlock" : "Click to lock",
             onclick: () => toggleLock(driver.id),
           })
         );
