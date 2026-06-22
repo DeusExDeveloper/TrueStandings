@@ -429,8 +429,9 @@
   // row (no merged/rowspan cell); the per-row left-accent shadow stacks into a
   // continuous bar per team block.
   function renderMasterRow(driver, team, blockClass) {
+    const driverLocked = driver.locked === true;
     const tr = el("tr", {
-      class: `mg-row ${blockClass} ${driver.locked ? "locked" : ""}`,
+      class: `mg-row ${blockClass} ${driverLocked ? "locked" : ""}`,
     });
 
     // Opaque base bg for this block + a SOLID team tint blended over it. Sticky
@@ -442,7 +443,7 @@
     // LOCKED cell (sticky) — display only. The lock is toggled on the Drivers
     // tab (this tab is for entering results, not managing the roster).
     const lockCell = el("td", { class: "mg-lock sticky-l", style: `background:${baseBg}` });
-    if (driver.locked) {
+    if (driverLocked) {
       lockCell.appendChild(
         el("span", { class: "lock-icon", text: "🔒", title: "Row locked (manage on Drivers tab)" })
       );
@@ -499,7 +500,11 @@
 
   function renderResultCell(driver, race, team) {
     const result = WSS.getResult(league.results, driver.id, race.id);
-    const readonly = driver.locked || !editMode;
+    // Per-driver row lock only — strictly `=== true` so a non-boolean can't
+    // silently freeze the row. This is the ONLY lock that gates a result cell;
+    // it has nothing to do with the Point Rules lock (league.pointsLocked).
+    const driverLocked = driver.locked === true;
+    const readonly = driverLocked || !editMode;
     const isTeamScored = !!(result && result.teamRace === true && result.position != null);
     const overLimit =
       isTeamScored &&
@@ -521,7 +526,7 @@
     const td = el("td", {
       class:
         "mg-cell result-cell" +
-        (driver.locked ? " readonly" : "") +
+        (driverLocked ? " readonly" : "") +
         (isTeamScored ? " team-scored" : "") +
         (overLimit ? " over-limit" : "") +
         (hasFastestLap ? " fastest-lap" : "") +
@@ -901,9 +906,11 @@
     });
   }
 
+  // Per-driver row lock (Drivers tab). Sets a strict boolean. Affects ONLY that
+  // driver's Race Grid result cells — never the Point Rules lock or race locks.
   function toggleLock(driverId) {
     const driver = league.drivers.find((d) => d.id === driverId);
-    if (driver) driver.locked = !driver.locked;
+    if (driver) driver.locked = driver.locked !== true; // flip to a clean boolean
     markDirty();
     renderAll();
   }
@@ -1510,7 +1517,14 @@
       fastestLapBonus: scoring.fastestLapBonus,
       pointsLocked: raw.pointsLocked === true, // default false for older saves
       teams: Array.isArray(raw.teams) ? raw.teams : [],
-      drivers: Array.isArray(raw.drivers) ? raw.drivers : [],
+      // Force each driver's `locked` to a real boolean. A stringy/garbage value
+      // from old saved JSON would otherwise be truthy and silently freeze the
+      // driver's Race Grid row (the per-driver lock must be a clean boolean,
+      // wholly separate from the per-race and Point Rules locks).
+      drivers: (Array.isArray(raw.drivers) ? raw.drivers : []).map((d) => ({
+        ...d,
+        locked: d && d.locked === true,
+      })),
       races: Array.isArray(raw.races) ? raw.races : [],
       results: raw.results && typeof raw.results === "object" ? raw.results : {},
       penalties: Array.isArray(raw.penalties) ? raw.penalties : [],
