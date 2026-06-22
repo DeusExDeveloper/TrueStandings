@@ -317,7 +317,7 @@
   // immediately when the active season's Point Rules are unlocked; otherwise
   // confirms first (one prompt per edit attempt).
   function withPointsLockConfirm(action) {
-    if (league.pointsLocked) {
+    if (league.pointsLocked === true) {
       confirmDialog("Point Rules are locked. Edit anyway?", action, {
         title: "Locked Point Rules",
         confirmLabel: "Edit anyway",
@@ -2028,7 +2028,11 @@
   // and only then swaps to a live input (one prompt per edit attempt). When
   // unlocked, it's directly editable.
   function rulesField(value, commit) {
-    if (!league.pointsLocked) return rulesLiveInput(value, commit);
+    // ONLY the active season's Point Rules lock gates these inputs. This must
+    // never read driver.locked or any per-driver / aggregate driver state — the
+    // two locks are fully independent. Strict === true so a stringy/garbage
+    // saved value can't silently freeze the tab.
+    if (league.pointsLocked !== true) return rulesLiveInput(value, commit);
 
     // Locked: a click-to-confirm placeholder that swaps to a live input.
     const placeholder = el("input", {
@@ -2084,7 +2088,7 @@
   // Toggle the active season's Point Rules lock (edit-mode only).
   function togglePointsLock() {
     if (!editMode) return;
-    league.pointsLocked = !league.pointsLocked;
+    league.pointsLocked = league.pointsLocked !== true; // flip to a clean boolean
     markDirty();
     renderAll();
   }
@@ -2096,7 +2100,7 @@
     if (lockHost) {
       lockHost.innerHTML = "";
       if (editMode) {
-        const locked = !!league.pointsLocked;
+        const locked = league.pointsLocked === true;
         lockHost.appendChild(
           el("button", {
             class: `btn small race-lock-toggle ${locked ? "on" : ""}`,
